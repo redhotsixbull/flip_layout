@@ -11,7 +11,7 @@ class ExampleApp extends StatelessWidget {
     // Deep-link a single tab via ?demo=filter|reorder|addremove (for docs
     // screenshots). Falls back to the tabbed demo.
     final demo = Uri.base.queryParameters['demo'];
-    const order = ['filter', 'reorder', 'addremove'];
+    const order = ['filter', 'reorder', 'addremove', 'shared'];
     final initial = order.indexOf(demo ?? '');
 
     return MaterialApp(
@@ -39,7 +39,7 @@ class _DemoPageState extends State<DemoPage>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this, initialIndex: widget.initialTab);
+    _tab = TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
   }
 
   @override
@@ -55,10 +55,12 @@ class _DemoPageState extends State<DemoPage>
         title: const Text('flip_layout'),
         bottom: TabBar(
           controller: _tab,
+          isScrollable: true,
           tabs: const [
             Tab(icon: Icon(Icons.filter_alt), text: 'Filter'),
             Tab(icon: Icon(Icons.shuffle), text: 'Reorder'),
             Tab(icon: Icon(Icons.playlist_add), text: 'Add / remove'),
+            Tab(icon: Icon(Icons.open_in_full), text: 'Shared'),
           ],
         ),
       ),
@@ -68,6 +70,7 @@ class _DemoPageState extends State<DemoPage>
           _FilterDemo(),
           _ReorderDemo(),
           _AddRemoveDemo(),
+          _SharedDemo(),
         ],
       ),
     );
@@ -211,6 +214,104 @@ class _Bubble extends StatelessWidget {
 }
 
 // -- 3. Add / remove demo (declarative enter/exit in a Column) ---------------
+
+// -- 4. Shared element demo (magic move, no route change) --------------------
+
+class _SharedDemo extends StatefulWidget {
+  const _SharedDemo();
+
+  @override
+  State<_SharedDemo> createState() => _SharedDemoState();
+}
+
+class _SharedDemoState extends State<_SharedDemo> {
+  int? _selected;
+
+  static const _colors = [
+    Color(0xFFE53935), Color(0xFFFB8C00), Color(0xFFFDD835),
+    Color(0xFF43A047), Color(0xFF1E88E5), Color(0xFF8E24AA),
+    Color(0xFF00ACC1), Color(0xFFF4511E), Color(0xFF6D4C41),
+  ];
+
+  Widget _tile(int i, {double radius = 16}) => Container(
+        decoration: BoxDecoration(
+          color: _colors[i % _colors.length],
+          borderRadius: BorderRadius.circular(radius),
+        ),
+        alignment: Alignment.center,
+        child: FittedBox(
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Text('${i + 1}',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return MotionSharedScope(
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeInOutCubic,
+      child: _selected == null ? _grid() : _detail(_selected!),
+    );
+  }
+
+  Widget _grid() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Tap a tile — it flies to the detail view (same page, no route).',
+              style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 12),
+          Expanded(
+            child: GridView.count(
+              crossAxisCount: 3,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              children: [
+                for (var i = 0; i < 9; i++)
+                  GestureDetector(
+                    onTap: () => setState(() => _selected = i),
+                    child: MotionSharedId(id: i, child: _tile(i)),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detail(int i) {
+    return GestureDetector(
+      onTap: () => setState(() => _selected = null),
+      child: Stack(
+        children: [
+          const Positioned.fill(child: ColoredBox(color: Color(0x66000000))),
+          Center(
+            child: SizedBox(
+              width: 240,
+              height: 240,
+              child: MotionSharedId(id: i, child: _tile(i, radius: 28)),
+            ),
+          ),
+          const Positioned(
+            bottom: 24,
+            left: 0,
+            right: 0,
+            child: Text('Tap anywhere to go back',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70)),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _AddRemoveDemo extends StatefulWidget {
   const _AddRemoveDemo();

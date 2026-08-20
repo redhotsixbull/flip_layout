@@ -378,6 +378,59 @@ void main() {
     });
   });
 
+  group('MotionSharedId', () {
+    testWidgets('flies a copy when the shared element moves', (tester) async {
+      var expanded = false;
+      Widget build() => MaterialApp(
+            home: Scaffold(
+              body: MotionSharedScope(
+                duration: const Duration(milliseconds: 200),
+                child: StatefulBuilder(
+                  builder: (context, setState) => Stack(
+                    children: [
+                      Positioned(
+                        left: expanded ? 180 : 0,
+                        top: expanded ? 180 : 0,
+                        child: MotionSharedId(
+                          id: 'x',
+                          child: GestureDetector(
+                            onTap: () => setState(() => expanded = !expanded),
+                            child: Container(
+                              width: expanded ? 120 : 40,
+                              height: expanded ? 120 : 40,
+                              color: const Color(0xFFFF0000),
+                              child: const Text('X',
+                                  textDirection: TextDirection.ltr),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(build());
+      await tester.pumpAndSettle();
+      expect(find.text('X'), findsOneWidget);
+
+      await tester.tap(find.text('X'));
+      var sawFlight = false;
+      for (var i = 0; i < 12 && !sawFlight; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (tester.widgetList(find.text('X')).length >= 2) sawFlight = true;
+      }
+      expect(sawFlight, isTrue,
+          reason: 'a flying copy appears during the shared-element transition');
+
+      await tester.pumpAndSettle();
+      expect(find.text('X'), findsOneWidget, reason: 'flight cleaned up');
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('MotionConfig', () {
     testWidgets('reduceMotion skips the LayoutMotion slide (instant)',
         (tester) async {

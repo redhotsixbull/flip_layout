@@ -85,6 +85,35 @@ Precedence for any value: the widget's own argument → the nearest `MotionConfi
 → a built-in default. When motion is reduced (config or the platform
 accessibility setting), animations are skipped and changes apply instantly.
 
+## Shared-element "magic move" (`layoutId` for Flutter)
+
+Flutter's `Hero` only animates **across routes**. `MotionSharedScope` +
+`MotionSharedId` animate a shared element **within the same page** — grid → detail,
+list → hero, tab → tab — no route change:
+
+| Grid | → tap → | Detail (flew here) |
+|---|---|---|
+| ![grid](doc/images/shared-grid.png) | | ![detail](doc/images/shared-detail.png) |
+
+```dart
+MotionSharedScope(
+  child: selected == null
+      ? GridView(children: [
+          for (final item in items)
+            GestureDetector(
+              onTap: () => setState(() => selected = item),
+              child: MotionSharedId(id: item.id, child: Thumb(item)),
+            ),
+        ])
+      : Center(child: MotionSharedId(id: selected!.id, child: BigCard(selected!))),
+)
+```
+
+Give two widgets the same `id` under one scope; when one replaces the other (or
+just moves), a copy flies from the old rect to the new one. Shared children
+should be **size-flexible** (no fixed width/height) so the flight interpolates
+layout smoothly.
+
 ## Spring motion
 
 Pass a `SpringCurve` anywhere a curve is accepted for a natural
@@ -133,7 +162,10 @@ kanban columns) — the cases the built-ins don't cover.
 
 ## Known limitations
 
-- No shared-element transitions across routes (`layoutId`).
+- Shared-element transitions are **within-page** (`MotionSharedScope`); for
+  cross-*route* transitions use Flutter's `Hero`. Shared children should be
+  size-flexible, and the flight interpolates the whole child (no separate
+  shuttle builder yet).
 - `SpringCurve` gives a spring *look* (fixed-duration, normalised) — it is not
   velocity-preserving physics; interruptions are position-continuous but don't
   carry momentum.

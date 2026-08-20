@@ -1,5 +1,8 @@
 ## 0.1.0
 
+- **New:** `MotionSharedScope` + `MotionSharedId` — shared-element "magic move"
+  transitions **within a page** (grid→detail, list→hero) with no route change,
+  the thing Flutter's `Hero` only does across routes. Example gains a Shared tab.
 - **New:** `SpringCurve` — a tunable spring (mass/stiffness/damping) as a
   `Curve`, for overshoot-and-settle slides anywhere a curve is accepted.
 - **New:** `MotionConfig` — set `duration`/`curve`/`stagger` defaults for a

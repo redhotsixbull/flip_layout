@@ -3,6 +3,21 @@
 Behavioral contract for the animations. Guarantees are pinned by
 `test/flip_layout_test.dart`.
 
+## -1. `MotionSharedScope` / `MotionSharedId` — shared-element transitions
+
+- Under one `MotionSharedScope`, at most one `MotionSharedId` per `id` is active
+  at a time (the shared-element contract).
+- The scope tracks each id's global rect per frame. When an id's rect changes
+  between frames (the same element moved, or one element replaced another with
+  the same id at a new location), a copy of the current child is flown in an
+  `Overlay` from the previous rect to the new rect over `duration`/`curve`.
+- While an id is in flight, the real widget holding that id renders at opacity 0
+  but keeps its layout box, so the flight lands on the correct destination rect.
+- The flight uses `Positioned.fromRect`, so a **size-flexible** child
+  interpolates its layout at each frame (not a uniform scale).
+- Overlay entry + controller are removed/disposed when the flight completes.
+- Route-to-route transitions are out of scope — use Flutter's `Hero`.
+
 ## 0. `MotionGroup` — declarative collection (layout + presence)
 
 Given a keyed `children` list and a `builder` that lays them out, `MotionGroup`
