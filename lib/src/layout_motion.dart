@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
@@ -10,6 +11,14 @@ import 'package:flutter/widgets.dart';
 ///      inverse [Transform.translate] equal to the movement delta and animate
 ///      it to [Offset.zero] over [duration].
 ///
+/// Two subtleties make this robust:
+///   * The measured [RenderBox] sits *above* the animating [Transform] (via a
+///     [MetaData] proxy), so the in-flight transform never contaminates the
+///     next measurement — no jitter or oscillation.
+///   * Inside a [Scrollable], positions are measured in the scroll *content*
+///     space (viewport-relative + scroll offset), so plain scrolling does not
+///     look like a layout move and won't trigger a spurious animation.
+///
 /// Wrap any widget you want to be layout-aware:
 /// ```dart
 /// LayoutMotion(child: Card(...))
@@ -21,6 +30,7 @@ class LayoutMotion extends StatefulWidget {
     this.duration = const Duration(milliseconds: 300),
     this.curve = Curves.easeOutCubic,
     this.animateSize = false,
+    this.onEnd,
   });
 
   final Widget child;
@@ -28,8 +38,13 @@ class LayoutMotion extends StatefulWidget {
   final Curve curve;
 
   /// If true, animate `Size` changes in addition to position. Off by default
-  /// because size interpolation via `Transform.scale` distorts child rendering.
+  /// because size interpolation via `Transform.scale` distorts child rendering
+  /// (text/borders stretch rather than re-layout). Treat it as a visual-only
+  /// effect for uniform boxes.
   final bool animateSize;
+
+  /// Called once each time a slide/scale animation finishes.
+  final VoidCallback? onEnd;
 
   @override
   State<LayoutMotion> createState() => _LayoutMotionState();
@@ -47,7 +62,18 @@ class _LayoutMotionState extends State<LayoutMotion>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: widget.duration);
+    _controller = AnimationController(vsync: this, duration: widget.duration)
+      ..addStatusListener(_onStatus);
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      // Settle back to identity so the resting transform is exactly zero.
+      _fromOffset = Offset.zero;
+      _fromScaleX = 1.0;
+      _fromScaleY = 1.0;
+      widget.onEnd?.call();
+    }
   }
 
   @override
@@ -58,11 +84,26 @@ class _LayoutMotionState extends State<LayoutMotion>
     }
   }
 
+  /// Measures the widget's untransformed bounds. Inside a [Scrollable] the
+  /// result is in scroll-content space so scrolling doesn't register as a move.
   Rect? _measureBounds() {
     final ctx = _key.currentContext;
     if (ctx == null) return null;
     final box = ctx.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize || !box.attached) return null;
+
+    final scrollable = Scrollable.maybeOf(ctx);
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (scrollable != null && viewport != null) {
+      final rel = box.localToGlobal(Offset.zero, ancestor: viewport);
+      final pos = scrollable.position;
+      // viewport-relative position DEcreases as we scroll while pixels
+      // INcreases by the same amount → the sum is scroll-invariant.
+      final origin = pos.axis == Axis.vertical
+          ? Offset(rel.dx, rel.dy + pos.pixels)
+          : Offset(rel.dx + pos.pixels, rel.dy);
+      return origin & box.size;
+    }
     return box.localToGlobal(Offset.zero) & box.size;
   }
 
@@ -72,47 +113,54 @@ class _LayoutMotionState extends State<LayoutMotion>
       final current = _measureBounds();
       if (current == null) return;
       final prev = _previousBounds;
-      if (prev != null && prev != current) {
-        final delta = prev.topLeft - current.topLeft;
-        _fromOffset = delta;
-        if (widget.animateSize && current.width > 0 && current.height > 0) {
-          _fromScaleX = prev.width / current.width;
-          _fromScaleY = prev.height / current.height;
-        } else {
-          _fromScaleX = 1.0;
-          _fromScaleY = 1.0;
-        }
-        _controller.forward(from: 0.0);
-      }
       _previousBounds = current;
+
+      if (prev == null || prev == current) return;
+      // Skip degenerate transitions (offstage → onstage, zero-size) that would
+      // otherwise produce a large bogus delta.
+      if (prev.isEmpty || current.isEmpty) return;
+
+      _fromOffset = prev.topLeft - current.topLeft;
+      if (widget.animateSize) {
+        _fromScaleX = prev.width / current.width;
+        _fromScaleY = prev.height / current.height;
+      } else {
+        _fromScaleX = 1.0;
+        _fromScaleY = 1.0;
+      }
+      _controller.forward(from: 0.0);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     _scheduleMeasurement();
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final t = _controller.isAnimating || _controller.value > 0
-            ? widget.curve.transform(_controller.value)
-            : 1.0;
-        final translate = Offset.lerp(_fromOffset, Offset.zero, t)!;
-        if (!widget.animateSize) {
-          return Transform.translate(offset: translate, child: child);
-        }
-        final scaleX = _lerp(_fromScaleX, 1.0, t);
-        final scaleY = _lerp(_fromScaleY, 1.0, t);
-        return Transform.translate(
-          offset: translate,
-          child: Transform(
-            alignment: Alignment.topLeft,
-            transform: Matrix4.identity()..scaleByDouble(scaleX, scaleY, 1.0, 1.0),
-            child: child,
-          ),
-        );
-      },
-      child: KeyedSubtree(key: _key, child: widget.child),
+    // The GlobalKey lives on a MetaData proxy that sits ABOVE the Transform, so
+    // measuring it yields the untransformed layout position.
+    return MetaData(
+      key: _key,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final t = widget.curve.transform(_controller.value);
+          final translate = Offset.lerp(_fromOffset, Offset.zero, t)!;
+          if (!widget.animateSize) {
+            return Transform.translate(offset: translate, child: child);
+          }
+          final scaleX = _lerp(_fromScaleX, 1.0, t);
+          final scaleY = _lerp(_fromScaleY, 1.0, t);
+          return Transform.translate(
+            offset: translate,
+            child: Transform(
+              alignment: Alignment.topLeft,
+              transform: Matrix4.identity()
+                ..scaleByDouble(scaleX, scaleY, 1.0, 1.0),
+              child: child,
+            ),
+          );
+        },
+        child: widget.child,
+      ),
     );
   }
 
@@ -124,5 +172,3 @@ class _LayoutMotionState extends State<LayoutMotion>
 }
 
 double _lerp(double a, double b, double t) => a + (b - a) * t;
-
-// Matrix4 scale extension not needed — using Matrix4.identity()..scale(x, y).

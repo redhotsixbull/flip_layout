@@ -1,6 +1,6 @@
 name: flip_layout
 description: Auto layout animation — widgets that smoothly animate when their position or size changes. Uses the FLIP technique.
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/redhotsixbull/flip_layout
 repository: https://github.com/redhotsixbull/flip_layout
 issue_tracker: https://github.com/redhotsixbull/flip_layout/issues

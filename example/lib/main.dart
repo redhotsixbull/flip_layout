@@ -91,7 +91,8 @@ class _ReorderDemoState extends State<_ReorderDemo> {
               ),
               const SizedBox(width: 8),
               FilledButton.tonal(
-                onPressed: () => setState(() => _items.reversed.toList()),
+                onPressed: () =>
+                    setState(() => _items = _items.reversed.toList()),
                 child: const Text('Reverse'),
               ),
             ],
