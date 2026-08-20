@@ -251,10 +251,18 @@ class _SharedDemoState extends State<_SharedDemo> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep the grid mounted and LAYER the detail on top (don't replace it), so
+    // the grid's scroll position and state are preserved — and the shared
+    // element flies back to its tile automatically on close.
     return MotionSharedScope(
       duration: const Duration(milliseconds: 420),
       curve: Curves.easeInOutCubic,
-      child: _selected == null ? _grid() : _detail(_selected!),
+      child: Stack(
+        children: [
+          _grid(),
+          if (_selected != null) _detail(_selected!),
+        ],
+      ),
     );
   }
 
