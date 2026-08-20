@@ -492,6 +492,55 @@ void main() {
       }
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('does NOT fly when an id reappears after being absent (recycle)',
+        (tester) async {
+      var phase = 0; // 0: at (10,10) · 1: absent · 2: back at (200,200)
+      late StateSetter setter;
+      Widget build() => MaterialApp(
+            home: Scaffold(
+              body: MotionSharedScope(
+                duration: const Duration(milliseconds: 200),
+                child: StatefulBuilder(
+                  builder: (context, setState) {
+                    setter = setState;
+                    return Stack(
+                      children: [
+                        if (phase != 1)
+                          Positioned(
+                            left: phase == 2 ? 200 : 10,
+                            top: phase == 2 ? 200 : 10,
+                            child: MotionSharedId(
+                              id: 'r',
+                              child: Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: const Color(0xFF0000FF),
+                                  child: const Text('R',
+                                      textDirection: TextDirection.ltr)),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(build());
+      await tester.pumpAndSettle();
+      setter(() => phase = 1); // scrolled off (disposed)
+      await tester.pumpAndSettle();
+      setter(() => phase = 2); // recycled back at a new position
+
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(tester.widgetList(find.text('R')).length, 1,
+            reason: 'reappearing after absence is not a swap → no flight');
+      }
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('MotionConfig', () {

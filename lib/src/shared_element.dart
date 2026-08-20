@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
 /// Wrap a region in a [MotionSharedScope], then give two widgets the same
 /// [MotionSharedId] `id`. When one disappears and the other appears (or the
@@ -110,6 +110,7 @@ class SharedElementController extends ChangeNotifier {
   final Map<Object, Rect> _lastRect = {};
   final Map<Object, Object> _lastHolder = {};
   final Set<Object> _flying = {};
+  Set<Object> _seenLastProcess = {};
   bool _scheduled = false;
 
   bool isFlying(Object id) => _flying.contains(id);
@@ -122,7 +123,12 @@ class SharedElementController extends ChangeNotifier {
   void unregister(Object id, Object token) {
     // Only drop it if the current registration is still this element (a newer
     // holder may already have replaced it during a swap).
-    if (identical(_active[id]?.token, token)) _active.remove(id);
+    if (identical(_active[id]?.token, token)) {
+      _active.remove(id);
+      // Re-run the diff so this frame's absence is recorded — otherwise an id
+      // that leaves and later returns would look continuously present.
+      _schedule();
+    }
   }
 
   void _schedule() {
@@ -136,27 +142,37 @@ class SharedElementController extends ChangeNotifier {
   }
 
   void _process() {
+    final present = <Object>{};
     for (final entry in _active.entries.toList()) {
       final id = entry.key;
-      if (_flying.contains(id)) continue;
       final reg = entry.value;
       final rect = reg.rectOf();
       if (rect == null || rect.isEmpty) continue;
+      present.add(id);
+
+      if (_flying.contains(id)) {
+        _lastRect[id] = rect;
+        _lastHolder[id] = reg.token;
+        continue;
+      }
 
       final lastRect = _lastRect[id];
       final lastHolder = _lastHolder[id];
-      // Only fly when a *different* element now holds this id (a swap), and it
-      // landed somewhere new. The same element moving (scroll/relayout) is
-      // ignored — that's not a shared-element transition.
+      // A flight fires only for a genuine hand-off: the id was present in the
+      // previous frame too (continuity — so a tile recycled by a fast scroll,
+      // which reappears after being absent, is NOT a swap), a *different*
+      // element now holds it, and it landed somewhere new.
+      final continuous = _seenLastProcess.contains(id);
       final swapped = lastHolder != null && !identical(lastHolder, reg.token);
 
       _lastRect[id] = rect;
       _lastHolder[id] = reg.token;
 
-      if (swapped && lastRect != null && lastRect != rect) {
+      if (continuous && swapped && lastRect != null && lastRect != rect) {
         _fly(id, lastRect, rect, reg.child);
       }
     }
+    _seenLastProcess = present;
   }
 
   void _fly(Object id, Rect from, Rect to, Widget child) {
@@ -179,8 +195,13 @@ class SharedElementController extends ChangeNotifier {
           // Positioned.fromRect gives the child tight rect constraints, so a
           // size-flexible child re-lays-out at each interpolated size (true
           // layout interpolation, not a scale). Give shared children no fixed
-          // size for the smoothest result.
-          return Positioned.fromRect(rect: rect, child: child);
+          // size for the smoothest result. The Material provides a proper text
+          // style context in the overlay (otherwise Text shows the yellow
+          // "missing style" underline).
+          return Positioned.fromRect(
+            rect: rect,
+            child: Material(type: MaterialType.transparency, child: child),
+          );
         },
       ),
     );
