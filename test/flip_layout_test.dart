@@ -175,4 +175,92 @@ void main() {
 
     expect(ended, greaterThan(0));
   });
+
+  group('MotionGroup', () {
+    Widget host(List<int> items, {bool animateInitial = false}) => MaterialApp(
+          home: Scaffold(
+            body: MotionGroup(
+              duration: const Duration(milliseconds: 200),
+              animateInitial: animateInitial,
+              children: [
+                for (final i in items)
+                  SizedBox(key: ValueKey(i), height: 40, child: Text('m$i')),
+              ],
+              builder: (context, children) => Wrap(children: children),
+            ),
+          ),
+        );
+
+    testWidgets('renders its children through the builder', (tester) async {
+      await tester.pumpWidget(host([1, 2, 3]));
+      await tester.pump();
+      expect(find.text('m1'), findsOneWidget);
+      expect(find.text('m3'), findsOneWidget);
+    });
+
+    testWidgets('a removed child stays mounted while it animates out, then goes',
+        (tester) async {
+      await tester.pumpWidget(host([1, 2, 3]));
+      await tester.pump();
+      expect(find.text('m2'), findsOneWidget);
+
+      // Remove item 2.
+      await tester.pumpWidget(host([1, 3]));
+      await tester.pump(const Duration(milliseconds: 50));
+      // Still present, mid-exit (AnimatePresence behaviour).
+      expect(find.text('m2'), findsOneWidget,
+          reason: 'exiting child is kept mounted during its animation');
+      final opacity = tester.widget<FadeTransition>(
+        find.ancestor(of: find.text('m2'), matching: find.byType(FadeTransition)).first,
+      );
+      expect(opacity.opacity.value, lessThan(1.0),
+          reason: 'exiting child is fading out');
+
+      await tester.pumpAndSettle();
+      expect(find.text('m2'), findsNothing, reason: 'removed after exit');
+    });
+
+    testWidgets('an added child animates in (opacity starts below 1)',
+        (tester) async {
+      await tester.pumpWidget(host([1, 2]));
+      await tester.pump();
+
+      await tester.pumpWidget(host([1, 2, 3]));
+      await tester.pump(const Duration(milliseconds: 40));
+      final fade = tester.widget<FadeTransition>(
+        find.ancestor(of: find.text('m3'), matching: find.byType(FadeTransition)).first,
+      );
+      expect(fade.opacity.value, lessThan(1.0), reason: 'entering child fades in');
+
+      await tester.pumpAndSettle();
+      final settled = tester.widget<FadeTransition>(
+        find.ancestor(of: find.text('m3'), matching: find.byType(FadeTransition)).first,
+      );
+      expect(settled.opacity.value, 1.0);
+    });
+
+    testWidgets('animateInitial:false shows initial children instantly',
+        (tester) async {
+      await tester.pumpWidget(host([1, 2], animateInitial: false));
+      await tester.pump();
+      final fade = tester.widget<FadeTransition>(
+        find.ancestor(of: find.text('m1'), matching: find.byType(FadeTransition)).first,
+      );
+      expect(fade.opacity.value, 1.0);
+    });
+
+    testWidgets('asserts children carry a key', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MotionGroup(
+              children: const [Text('no-key')],
+              builder: (context, children) => Column(children: children),
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isAssertionError);
+    });
+  });
 }

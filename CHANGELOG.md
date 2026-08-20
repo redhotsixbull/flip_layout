@@ -1,3 +1,19 @@
+## 0.1.0
+
+- **New:** `MotionGroup` — a declarative collection animator that does
+  **enter/exit** (an `AnimatePresence` equivalent) + **layout** (FLIP) in any
+  layout (`Wrap`, `GridView`, `Column`, …). Just change the `children` list.
+  Supports `stagger`, `animateInitial`, and a custom `transitionBuilder`.
+- **Example:** redesigned around `MotionGroup` — Filter (a `Wrap` that no
+  built-in animates), Reorder (FLIP + stagger), and Add/remove (enter/exit).
+  The old Expand demo was removed (that's `AnimatedSize`/`ExpansionTile`'s job,
+  and mixing FLIP with a continuous resize caused jitter). Runs on web;
+  deep-linkable via `?demo=<id>`.
+- **Docs:** README repositioned around `MotionGroup` with screenshots and a
+  "When *not* to use this" section; `docs/` renamed to `doc/` (pub convention);
+  added pubspec topics.
+- Bundles all `0.0.2` fixes below.
+
 ## 0.0.2
 
 - **Fix:** measurement now reads the untransformed layout position (via a

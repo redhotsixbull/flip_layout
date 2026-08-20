@@ -1,62 +1,114 @@
 # flip_layout
 
-Auto layout animation for Flutter. Wrap a widget in `LayoutMotion` and it smoothly slides to its new position whenever the parent's layout changes — reorders, filters, expansions.
+[![pub package](https://img.shields.io/pub/v/flip_layout.svg)](https://pub.dev/packages/flip_layout)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Inspired by Framer Motion's `layout` prop. Implements the **FLIP** technique (First, Last, Invert, Play): measure old & new positions, apply an inverse transform, animate the transform to identity.
+**Declarative layout & presence animations for Flutter** — change your state,
+and collections animate themselves. Inspired by
+[Framer Motion](https://www.framer.com/motion/)'s `layout` prop and
+`AnimatePresence`.
 
-> **Status:** v0.0.1 — early alpha. API surfaces may change.
+Flutter's built-ins are either **size-only** (`AnimatedSize`, `ExpansionTile`)
+or **imperative** (`AnimatedList`/`SliverAnimatedList` need a controller and
+manual insert/remove calls, and only work in a `ListView`). `flip_layout` fills
+the gap: a **declarative** collection animator that does **enter/exit + layout**
+in **any** layout — `Wrap`, `GridView`, `Column`, your own — just by changing the
+list you pass it.
 
-## Features (v0.0.1)
+> **Status:** `0.1.0` — early but usable. Core is covered by tests and runs on
+> every platform (mobile, desktop, **web**).
 
-- `LayoutMotion({child, duration, curve, animateSize})` — auto-animates any widget when its own screen position changes
-- `AnimatedLayout` — convenience wrapper that provides a `wrap(child)` helper for building lists whose children animate
+## See it
 
-## Not yet
+| Filter a `Wrap` (before → after) | | Reorder (FLIP + stagger) | Add / remove (enter/exit) |
+|---|---|---|---|
+| ![filter](doc/images/filter.png) | ![filtered](doc/images/filter-active.png) | ![reorder](doc/images/reorder.png) | ![add/remove](doc/images/addremove.png) |
 
-- Shared element transitions across route changes (`layoutId`)
-- Enter/exit animations (`AnimatePresence`)
-- Spring physics driver
-- Coordinated group animations (Framer's `<LayoutGroup>`)
+Typing a query removes the non-matching chips (they fade out), and the survivors
+slide up to fill the gaps — in a `Wrap`, which no Flutter built-in animates.
 
-## Quick example
-
-Reorderable list:
-
-```dart
-List<int> items = [1, 2, 3, 4, 5];
-
-Column(
-  children: items.map((i) => LayoutMotion(
-    key: ValueKey(i),
-    duration: Duration(milliseconds: 250),
-    child: Card(child: ListTile(title: Text('Item $i'))),
-  )).toList(),
-);
-
-// Later:
-setState(() => items.shuffle());
-// → each card slides to its new position.
+```bash
+cd example && flutter run          # mobile / desktop
+cd example && flutter run -d chrome # web
 ```
 
-Filtered grid:
+## Install
 
-```dart
-Wrap(
-  children: allTags.where(matchesQuery).map((tag) => LayoutMotion(
-    key: ValueKey(tag),
-    child: Chip(label: Text(tag)),
-  )).toList(),
-);
+```yaml
+dependencies:
+  flip_layout: ^0.1.0
 ```
 
-## How it works
+## `MotionGroup` — the main event
 
-Every frame, `LayoutMotion` schedules a post-frame callback that measures its
-`RenderBox`'s screen position. If the bounds differ from the previous frame,
-it sets `_fromOffset = previous - current` and runs an `AnimationController`
-from `0.0 → 1.0`, lerping the transform back to `Offset.zero`. The widget is
-already sitting at its new location, but visually appears to travel from where
-it used to be.
+Give it a keyed list of children and a `builder` that arranges them. It handles
+the rest:
+
+```dart
+MotionGroup(
+  // adding/removing/reordering these just works
+  children: [
+    for (final tag in visibleTags)
+      Chip(key: ValueKey(tag), label: Text(tag)),
+  ],
+  builder: (context, children) => Wrap(spacing: 8, children: children),
+)
+```
+
+- **Enter** — new children fade + scale in.
+- **Exit** — removed children are kept mounted and animated out *before* being
+  removed (an `AnimatePresence` equivalent — Flutter can't otherwise animate a
+  widget that's already gone from the tree).
+- **Layout** — survivors slide (FLIP) to their new positions.
+- `stagger` — delay between children entering, for a staggered reveal.
+- `transitionBuilder` — customise the enter/exit transition (default: fade +
+  scale).
+- `animateInitial` — whether the first batch animates in.
+
+Every child **must** carry a unique `Key`.
+
+## `LayoutMotion` — position-only, for a single widget
+
+If you just want one widget to slide when *its own* position changes (and don't
+need enter/exit), wrap it directly:
+
+```dart
+LayoutMotion(
+  key: ValueKey(id),
+  child: Card(child: ListTile(title: Text('Item $id'))),
+)
+```
+
+It measures its untransformed bounds each real layout change and animates from
+the old position to the new one (the **FLIP** technique). Inside a `Scrollable`
+it measures in scroll-content space, so plain scrolling doesn't trigger a
+spurious slide.
+
+## When *not* to use this
+
+Reach for a Flutter built-in instead when it already fits — don't fight it:
+
+- **Expand / collapse one widget's size** → `AnimatedSize` or `ExpansionTile`.
+  (Animating a *continuously* resizing widget with FLIP causes jitter, because
+  FLIP is for **discrete** position changes.)
+- **Drag-to-reorder a list** → `ReorderableListView`.
+- **A huge, lazily-built list** → `AnimatedList`/`SliverAnimatedList` (virtualised).
+
+`flip_layout` shines for **declarative** enter/exit + reflow of **modest
+collections in arbitrary layouts** (filtered chips, tag grids, dashboards,
+kanban columns) — the cases the built-ins don't cover.
+
+## Known limitations
+
+- No shared-element transitions across routes (`layoutId`).
+- No spring physics; a mid-flight change restarts rather than preserving
+  velocity (not interruptible).
+- `LayoutMotion.animateSize` interpolates size with `Transform.scale`, which
+  visually stretches children — treat it as a visual-only effect for uniform
+  boxes.
+- Best for modest collections; there's no virtualisation.
+
+See [`doc/SPEC.md`](doc/SPEC.md) and [`doc/ROADMAP.md`](doc/ROADMAP.md).
 
 ## License
 

@@ -1,7 +1,31 @@
 # flip_layout — Feature Specification
 
-Behavioral contract for the FLIP animation. Guarantees are pinned by
+Behavioral contract for the animations. Guarantees are pinned by
 `test/flip_layout_test.dart`.
+
+## 0. `MotionGroup` — declarative collection (layout + presence)
+
+Given a keyed `children` list and a `builder` that lays them out, `MotionGroup`
+animates the collection as `children` changes:
+
+- **Enter**: a child whose key is new since the last build animates in (default
+  fade + scale, via `transitionBuilder`, `0→1`).
+- **Exit**: a child whose key disappears from `children` MUST be **kept
+  mounted** and animated out (`1→0`) *before* it is removed from the tree. Only
+  after its animation reaches `dismissed` is it actually removed. (This is the
+  `AnimatePresence` guarantee — you can't animate a widget Flutter has already
+  disposed.)
+- **Layout**: surviving children slide to their new positions via `LayoutMotion`
+  (FLIP) when siblings enter/leave or the order changes.
+- Exit transitions are **paint-only** (opacity/scale), so an exiting child keeps
+  its layout footprint until removed — survivors reflow as a single discrete
+  step (no continuous-resize jitter).
+- `stagger`: successive children in the same enter-batch start `stagger` apart.
+- `animateInitial`: when false, the first batch appears at rest (no enter
+  animation).
+- Every child MUST have a unique `Key` (asserted).
+- Controllers are created per child and disposed on exit/removal and on widget
+  dispose.
 
 ## 1. `LayoutMotion` — the FLIP loop
 
