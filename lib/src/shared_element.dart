@@ -106,7 +106,15 @@ class SharedElementController extends ChangeNotifier {
   final Duration duration;
   final Curve curve;
 
-  final Map<Object, _Registration> _active = {};
+  // For each id, all elements currently claiming it (token -> registration).
+  // The "active" (front) holder is the one that appeared most recently — by
+  // birth order, NOT by per-frame registration order (a lazy GridView registers
+  // its tiles during layout, *after* an overlay detail builds, so "last
+  // registered" would be wrong).
+  final Map<Object, Map<Object, _Registration>> _holders = {};
+  final Map<Object, int> _birth = {};
+  int _birthSeq = 0;
+
   final Map<Object, Rect> _lastRect = {};
   final Map<Object, Object> _lastHolder = {};
   final Map<Object, Object> _resolvedHolder = {};
@@ -116,30 +124,46 @@ class SharedElementController extends ChangeNotifier {
 
   bool isFlying(Object id) => _flying.contains(id);
 
+  _Registration? _activeReg(Object id) {
+    final map = _holders[id];
+    if (map == null || map.isEmpty) return null;
+    _Registration? best;
+    var bestBirth = -1;
+    for (final reg in map.values) {
+      final b = _birth[reg.token] ?? -1;
+      if (b >= bestBirth) {
+        bestBirth = b;
+        best = reg;
+      }
+    }
+    return best;
+  }
+
   /// Whether the element identified by [token] should be visible for [id]. It is
-  /// hidden while a flight for that id is in progress, and also whenever a
-  /// *different* (newer, on-top) element currently holds the id — so the source
-  /// tile stays hidden while the detail is open, and reappears on fly-back.
+  /// hidden while a flight for that id is in progress, and also whenever a newer
+  /// (on-top) element currently holds the id — so the source tile stays hidden
+  /// while the detail is open, and reappears on fly-back.
   bool shouldShow(Object id, Object token) {
     if (_flying.contains(id)) return false;
-    final resolved = _resolvedHolder[id];
-    return resolved == null || identical(resolved, token);
+    final active = _activeReg(id)?.token;
+    return active == null || identical(active, token);
   }
 
   void register(Object id, Object token, Rect? Function() rectOf, Widget child) {
-    _active[id] = _Registration(token, rectOf, child);
+    _birth.putIfAbsent(token, () => _birthSeq++);
+    (_holders[id] ??= {})[token] = _Registration(token, rectOf, child);
     _schedule();
   }
 
   void unregister(Object id, Object token) {
-    // Only drop it if the current registration is still this element (a newer
-    // holder may already have replaced it during a swap).
-    if (identical(_active[id]?.token, token)) {
-      _active.remove(id);
-      // Re-run the diff so this frame's absence is recorded — otherwise an id
-      // that leaves and later returns would look continuously present.
-      _schedule();
+    final map = _holders[id];
+    if (map != null) {
+      map.remove(token);
+      if (map.isEmpty) _holders.remove(id);
     }
+    _birth.remove(token);
+    // Re-run the diff so this frame's change is recorded.
+    _schedule();
   }
 
   void _schedule() {
@@ -155,14 +179,14 @@ class SharedElementController extends ChangeNotifier {
   void _process() {
     final present = <Object>{};
     var resolvedChanged = false;
-    for (final entry in _active.entries.toList()) {
-      final id = entry.key;
-      final reg = entry.value;
+    for (final id in _holders.keys.toList()) {
+      final reg = _activeReg(id);
+      if (reg == null) continue;
       final rect = reg.rectOf();
       if (rect == null || rect.isEmpty) continue;
       present.add(id);
 
-      // The current registration is the visible ("active") holder for this id.
+      // The newest (front) holder is the visible one for this id.
       if (!identical(_resolvedHolder[id], reg.token)) {
         _resolvedHolder[id] = reg.token;
         resolvedChanged = true;
