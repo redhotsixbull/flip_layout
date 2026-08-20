@@ -299,7 +299,7 @@ class _SharedDemoState extends State<_SharedDemo> {
       onTap: () => setState(() => _selected = null),
       child: Stack(
         children: [
-          const Positioned.fill(child: ColoredBox(color: Color(0x66000000))),
+          const Positioned.fill(child: ColoredBox(color: Color(0xCC000000))),
           Center(
             child: SizedBox(
               width: 240,

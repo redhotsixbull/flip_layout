@@ -493,6 +493,71 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('source stays hidden while a newer holder owns the id',
+        (tester) async {
+      var overlay = false;
+      late StateSetter setter;
+      double opacityOf(Key k) => tester
+          .widget<Opacity>(find
+              .descendant(of: find.byKey(k), matching: find.byType(Opacity))
+              .first)
+          .opacity;
+
+      Widget box() => Container(
+          color: const Color(0xFF123456),
+          child: const Text('S', textDirection: TextDirection.ltr));
+
+      Widget build() => MaterialApp(
+            home: Scaffold(
+              body: MotionSharedScope(
+                duration: const Duration(milliseconds: 150),
+                child: StatefulBuilder(
+                  builder: (context, setState) {
+                    setter = setState;
+                    return Stack(
+                      children: [
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          child: MotionSharedId(
+                            id: 's',
+                            key: const ValueKey('src'),
+                            child: SizedBox(width: 40, height: 40, child: box()),
+                          ),
+                        ),
+                        if (overlay)
+                          Center(
+                            child: MotionSharedId(
+                              id: 's',
+                              key: const ValueKey('dst'),
+                              child:
+                                  SizedBox(width: 120, height: 120, child: box()),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(build());
+      await tester.pumpAndSettle();
+      expect(opacityOf(const ValueKey('src')), 1.0);
+
+      setter(() => overlay = true);
+      await tester.pumpAndSettle(); // fly-in completes
+      expect(opacityOf(const ValueKey('src')), 0.0,
+          reason: 'source hidden while the detail owns the id');
+      expect(opacityOf(const ValueKey('dst')), 1.0);
+
+      setter(() => overlay = false);
+      await tester.pumpAndSettle(); // fly-back completes
+      expect(opacityOf(const ValueKey('src')), 1.0,
+          reason: 'source reappears once the detail is gone');
+    });
+
     testWidgets('does NOT fly when an id reappears after being absent (recycle)',
         (tester) async {
       var phase = 0; // 0: at (10,10) · 1: absent · 2: back at (200,200)

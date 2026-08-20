@@ -109,11 +109,22 @@ class SharedElementController extends ChangeNotifier {
   final Map<Object, _Registration> _active = {};
   final Map<Object, Rect> _lastRect = {};
   final Map<Object, Object> _lastHolder = {};
+  final Map<Object, Object> _resolvedHolder = {};
   final Set<Object> _flying = {};
   Set<Object> _seenLastProcess = {};
   bool _scheduled = false;
 
   bool isFlying(Object id) => _flying.contains(id);
+
+  /// Whether the element identified by [token] should be visible for [id]. It is
+  /// hidden while a flight for that id is in progress, and also whenever a
+  /// *different* (newer, on-top) element currently holds the id — so the source
+  /// tile stays hidden while the detail is open, and reappears on fly-back.
+  bool shouldShow(Object id, Object token) {
+    if (_flying.contains(id)) return false;
+    final resolved = _resolvedHolder[id];
+    return resolved == null || identical(resolved, token);
+  }
 
   void register(Object id, Object token, Rect? Function() rectOf, Widget child) {
     _active[id] = _Registration(token, rectOf, child);
@@ -143,12 +154,19 @@ class SharedElementController extends ChangeNotifier {
 
   void _process() {
     final present = <Object>{};
+    var resolvedChanged = false;
     for (final entry in _active.entries.toList()) {
       final id = entry.key;
       final reg = entry.value;
       final rect = reg.rectOf();
       if (rect == null || rect.isEmpty) continue;
       present.add(id);
+
+      // The current registration is the visible ("active") holder for this id.
+      if (!identical(_resolvedHolder[id], reg.token)) {
+        _resolvedHolder[id] = reg.token;
+        resolvedChanged = true;
+      }
 
       if (_flying.contains(id)) {
         _lastRect[id] = rect;
@@ -173,6 +191,9 @@ class SharedElementController extends ChangeNotifier {
       }
     }
     _seenLastProcess = present;
+    // Reveal/hide holders whose active status changed (e.g. source tile hides
+    // once the detail takes over the id, and reappears when it closes).
+    if (resolvedChanged && !_disposed) notifyListeners();
   }
 
   void _fly(Object id, Rect from, Rect to, Widget child) {
@@ -265,13 +286,13 @@ class _MotionSharedIdState extends State<MotionSharedId> {
     // Register (idempotent). `this` is the identity token: a flight only fires
     // when a *different* element takes over the id, not when this one moves.
     controller?.register(widget.id, this, _measure, widget.child);
-    final flying = controller?.isFlying(widget.id) ?? false;
+    final show = controller?.shouldShow(widget.id, this) ?? true;
 
     return KeyedSubtree(
       key: _key,
-      // Hide the real widget while its copy is flying, keeping its layout box
-      // so the flight lands on the correct rect.
-      child: Opacity(opacity: flying ? 0.0 : 1.0, child: widget.child),
+      // Hidden while a copy is flying, and while a newer element holds this id
+      // (keeping the layout box so flights land on the correct rect).
+      child: Opacity(opacity: show ? 1.0 : 0.0, child: widget.child),
     );
   }
 }
