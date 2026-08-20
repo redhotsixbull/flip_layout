@@ -85,6 +85,21 @@ Precedence for any value: the widget's own argument → the nearest `MotionConfi
 → a built-in default. When motion is reduced (config or the platform
 accessibility setting), animations are skipped and changes apply instantly.
 
+## Spring motion
+
+Pass a `SpringCurve` anywhere a curve is accepted for a natural
+overshoot-and-settle:
+
+```dart
+MotionGroup(
+  duration: const Duration(milliseconds: 520),
+  curve: SpringCurve(stiffness: 220, damping: 14),
+  ...
+)
+```
+
+Lower `damping` bounces more; higher `damping` settles without overshoot.
+
 ## `LayoutMotion` — position-only, for a single widget
 
 If you just want one widget to slide when *its own* position changes (and don't
@@ -119,8 +134,9 @@ kanban columns) — the cases the built-ins don't cover.
 ## Known limitations
 
 - No shared-element transitions across routes (`layoutId`).
-- No spring physics — motion is curve-based (interruptions are
-  position-continuous, but velocity isn't preserved).
+- `SpringCurve` gives a spring *look* (fixed-duration, normalised) — it is not
+  velocity-preserving physics; interruptions are position-continuous but don't
+  carry momentum.
 - `LayoutMotion.animateSize` interpolates size with `Transform.scale`, which
   visually stretches children — treat it as a visual-only effect for uniform
   boxes.

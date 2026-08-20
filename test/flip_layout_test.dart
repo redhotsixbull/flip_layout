@@ -355,6 +355,29 @@ void main() {
     });
   });
 
+  group('SpringCurve', () {
+    test('starts at 0, ends at 1, and an underdamped spring overshoots', () {
+      final spring = SpringCurve(stiffness: 240, damping: 6); // bouncy
+      expect(spring.transform(0.0), 0.0);
+      expect(spring.transform(1.0), 1.0);
+
+      var maxValue = 0.0;
+      for (var i = 1; i < 40; i++) {
+        final v = spring.transform(i / 40);
+        if (v > maxValue) maxValue = v;
+      }
+      expect(maxValue, greaterThan(1.0),
+          reason: 'underdamped spring overshoots the target');
+    });
+
+    test('an overdamped spring settles without overshooting', () {
+      final spring = SpringCurve(stiffness: 120, damping: 30); // stiff/damped
+      for (var i = 0; i <= 40; i++) {
+        expect(spring.transform(i / 40), lessThanOrEqualTo(1.0 + 1e-6));
+      }
+    });
+  });
+
   group('MotionConfig', () {
     testWidgets('reduceMotion skips the LayoutMotion slide (instant)',
         (tester) async {

@@ -1,5 +1,7 @@
 ## 0.1.0
 
+- **New:** `SpringCurve` — a tunable spring (mass/stiffness/damping) as a
+  `Curve`, for overshoot-and-settle slides anywhere a curve is accepted.
 - **New:** `MotionConfig` — set `duration`/`curve`/`stagger` defaults for a
   subtree once, and honour reduced-motion (config flag, or the OS accessibility
   setting automatically) by skipping animations. `LayoutMotion`/`MotionGroup`

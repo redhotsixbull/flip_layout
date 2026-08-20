@@ -169,7 +169,8 @@ class _ReorderDemoState extends State<_ReorderDemo> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(12),
             child: MotionGroup(
-              duration: const Duration(milliseconds: 320),
+              duration: const Duration(milliseconds: 520),
+              curve: SpringCurve(stiffness: 220, damping: 14), // springy slide
               stagger: const Duration(milliseconds: 25),
               children: [
                 for (final i in _items)
