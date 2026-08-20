@@ -101,8 +101,8 @@ kanban columns) — the cases the built-ins don't cover.
 ## Known limitations
 
 - No shared-element transitions across routes (`layoutId`).
-- No spring physics; a mid-flight change restarts rather than preserving
-  velocity (not interruptible).
+- No spring physics — motion is curve-based (interruptions are
+  position-continuous, but velocity isn't preserved).
 - `LayoutMotion.animateSize` interpolates size with `Transform.scale`, which
   visually stretches children — treat it as a visual-only effect for uniform
   boxes.

@@ -120,7 +120,16 @@ class _LayoutMotionState extends State<LayoutMotion>
       // otherwise produce a large bogus delta.
       if (prev.isEmpty || current.isEmpty) return;
 
-      _fromOffset = prev.topLeft - current.topLeft;
+      final delta = prev.topLeft - current.topLeft;
+      // Interruptible: if a slide is already in flight, start the new one from
+      // the element's *current on-screen* offset instead of snapping to 0, so a
+      // reorder-during-reorder stays position-continuous (no visible jump).
+      final currentTranslate = _controller.isAnimating
+          ? Offset.lerp(
+              _fromOffset, Offset.zero, widget.curve.transform(_controller.value))!
+          : Offset.zero;
+      _fromOffset = delta + currentTranslate;
+
       if (widget.animateSize) {
         _fromScaleX = prev.width / current.width;
         _fromScaleY = prev.height / current.height;

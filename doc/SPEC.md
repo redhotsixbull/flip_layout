@@ -40,6 +40,9 @@ The FLIP technique: **F**irst/**L**ast measure, **I**nvert with a transform,
   inverse offset/scale are reset to zero/one.
 - Mid-animation the moved child MUST actually be offset (it slides), not
   snapped to its final slot.
+- **Interruptible**: if the layout changes again while a slide is in flight, the
+  new slide starts from the element's *current on-screen* offset (not from a
+  hard 0), so a reorder-during-reorder stays position-continuous — no jump.
 
 ## 2. Measurement correctness (the two subtle guarantees)
 

@@ -1,5 +1,8 @@
 ## 0.1.0
 
+- **New:** `LayoutMotion` slides are now **interruptible** — a layout change
+  mid-slide re-targets from the current on-screen position instead of snapping
+  to 0, so rapid reorders/filters stay smooth (also benefits `MotionGroup`).
 - **New:** `MotionGroup` — a declarative collection animator that does
   **enter/exit** (an `AnimatePresence` equivalent) + **layout** (FLIP) in any
   layout (`Wrap`, `GridView`, `Column`, …). Just change the `children` list.

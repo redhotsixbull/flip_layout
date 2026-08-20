@@ -71,6 +71,54 @@ void main() {
         reason: 'settles exactly back to identity');
   });
 
+  testWidgets('interruptible: a reorder mid-slide stays continuous and settles',
+      (tester) async {
+    var order = [1, 2, 3];
+    late void Function(void Function()) setter;
+
+    Widget build() => MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                setter = setState;
+                return Column(
+                  children: [
+                    for (final i in order)
+                      LayoutMotion(
+                        key: ValueKey(i),
+                        duration: const Duration(milliseconds: 200),
+                        child: SizedBox(height: 60, child: Text('r$i')),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(build());
+    await tester.pump();
+
+    setter(() => order = [3, 2, 1]); // first reorder
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60)); // mid-slide
+    final mid = _translateOf(tester, 'r1').distance;
+    expect(mid, greaterThan(1.0), reason: 'first slide in flight');
+
+    setter(() => order = [1, 2, 3]); // interrupt with a second reorder
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    // Right after interruption it must not snap to a wildly larger offset —
+    // it re-targets from the current on-screen position.
+    final afterInterrupt = _translateOf(tester, 'r1').distance;
+    expect(afterInterrupt, lessThan(mid + 200),
+        reason: 'no discontinuous jump on interruption');
+
+    await tester.pumpAndSettle();
+    expect(_translateOf(tester, 'r1').distance, lessThan(0.01),
+        reason: 'settles cleanly to identity after interruption');
+  });
+
   testWidgets('scrolling does NOT trigger a spurious slide', (tester) async {
     final controller = ScrollController();
     await tester.pumpWidget(
