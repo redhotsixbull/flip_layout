@@ -85,13 +85,27 @@ rendering (text stretches, images blur). We keep it off by default because
 `AnimatedContainer` / `AnimatedCrossFade` are usually better for actual
 size changes. FLIP is at its best for **position** animation.
 
-## What we deliberately don't do (yet)
+## Beyond `LayoutMotion` (0.1.0)
 
-- **Shared element transitions** — a `LayoutMotion` in tree A → same
-  `layoutId` in tree B, animated across the route change. Requires a
-  cross-frame render coordinator, planned for v0.2.
-- **Enter / exit animations** — Framer Motion's `<AnimatePresence>` pattern
-  needs Flutter to know when a widget is *about to unmount*. Doable via a
-  custom `Element` subclass, planned for v0.2.
-- **Spring physics** — currently uses `Curve` interpolation. Real physics
-  simulation (Framer's `spring`) planned for v0.2 via `SpringSimulation`.
+- **`MotionGroup`** — enter/exit (an `AnimatePresence` equivalent) + layout.
+  Rather than needing an `Element` subclass, it keeps a per-child state ("slot")
+  with an `AnimationController`: entering children run forward; a removed child
+  is kept mounted and run in reverse, then removed on `dismissed`; survivors are
+  wrapped in `LayoutMotion` so they FLIP into place. Exit transitions are
+  paint-only, so the layout reflows in one discrete step (no jitter).
+- **`MotionSharedScope` / `MotionSharedId`** — within-page shared elements. A
+  per-scope controller tracks each id's holders and global rect; on a genuine
+  hand-off (a *different*, newer element takes the id) it flies an overlay copy
+  from the old rect to the new one and hides the non-active holder. The active
+  holder is chosen by **birth order**, not registration order, so lazy slivers
+  (which build during layout) don't confuse it.
+- **`SpringCurve`** — a `SpringSimulation` sampled onto `t ∈ [0,1]`, so springy
+  motion works through the existing curve path (no controller rework).
+
+## Still not done
+
+- **Cross-*route* shared elements** — today's shared elements are within-page;
+  route-to-route hand-off is Flutter `Hero`'s job.
+- **Velocity-preserving spring** — `SpringCurve` is fixed-duration; true physics
+  interruption (carrying momentum) is future work.
+- **Virtualisation** — best for modest collections; no windowing yet.

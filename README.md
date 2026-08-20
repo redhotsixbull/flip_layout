@@ -20,11 +20,11 @@ list you pass it.
 
 ## See it
 
-| Filter a `Wrap` (before → after) | | Reorder (FLIP + stagger) | Add / remove (enter/exit) |
-|---|---|---|---|
-| ![filter](doc/images/filter.png) | ![filtered](doc/images/filter-active.png) | ![reorder](doc/images/reorder.png) | ![add/remove](doc/images/addremove.png) |
+| Filter a `Wrap` (enter/exit) | Reorder (FLIP + spring) | Add / remove (enter/exit) |
+|---|---|---|
+| ![filter](doc/images/filter.gif) | ![reorder](doc/images/reorder.gif) | ![add/remove](doc/images/addremove.gif) |
 
-Typing a query removes the non-matching chips (they fade out), and the survivors
+Typing a query removes the non-matching chips (they fade out) and the survivors
 slide up to fill the gaps — in a `Wrap`, which no Flutter built-in animates.
 
 ```bash
@@ -91,9 +91,9 @@ Flutter's `Hero` only animates **across routes**. `MotionSharedScope` +
 `MotionSharedId` animate a shared element **within the same page** — grid → detail,
 list → hero, tab → tab — no route change:
 
-| Grid | → tap → | Detail (flew here) |
-|---|---|---|
-| ![grid](doc/images/shared-grid.png) | | ![detail](doc/images/shared-detail.png) |
+<p align="center">
+  <img src="doc/images/shared.gif" width="260" alt="A grid tile flying to a detail view and back, within one page">
+</p>
 
 ```dart
 MotionSharedScope(

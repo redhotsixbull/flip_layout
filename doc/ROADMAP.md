@@ -6,35 +6,42 @@
 - `AnimatedLayout` convenience wrapper
 - Optional `animateSize` (size interpolation via Transform.scale)
 
-## v0.1 — Animation quality
+## v0.1.0 — Quality + declarative motion (shipped)
 
-- **Spring driver** — `SpringSimulation` alternative to `Curve` interpolation
-- **`onLayoutChange` callback** — notify subscribers when a reflow triggers animation
-- **Interruptible animations** — new layout change mid-animation should smoothly re-target, not snap
-- **Performance** — profile with 1000+ items, consider RenderObject-based measurement
+- **Robust `LayoutMotion`** — untransformed measurement (no jitter),
+  scroll-content-space measurement (no spurious slide on scroll),
+  **interruptible** slides (re-target from current offset, no snap), `onEnd`.
+- **`MotionGroup`** — declarative collection animator: **enter/exit**
+  (`AnimatePresence` equivalent) + FLIP layout in any layout (Wrap/Grid/Column),
+  with `stagger`, `animateInitial`, and separate `exitTransitionBuilder`.
+- **`MotionConfig`** — subtree-wide `duration`/`curve`/`stagger` defaults +
+  reduced-motion (honours `MediaQuery.disableAnimations`).
+- **`SpringCurve`** — tunable spring as a `Curve`.
+- **`MotionSharedScope` / `MotionSharedId`** — within-page shared-element
+  "magic move" (Hero-like, no route change).
 
-## v0.2 — Framer Motion parity features
+## Next (v0.2+)
 
-- **Shared elements across routes** (`SharedLayoutId`) — hero-like transitions but for arbitrary widgets
-- **`AnimatePresence`** — enter and exit animations for conditionally-rendered widgets
-- **`LayoutGroup`** — coordinate multiple `LayoutMotion`s so they animate as one
-- **Gesture integration** — dragging a widget commits to a new position with FLIP smoothing
-
-## v0.5 — Advanced use cases
-
-- **Scroll-linked animations** — position animations tied to scroll offset
-- **Automatic reorder detection** — plug in with `Draggable` / `DragTarget` for FLIP-animated drag reorder
-- **`ImplicitlyAnimatedGrid`** — a `Wrap` / `GridView` replacement where children auto-animate
+- **Velocity-preserving spring** — true physics interruption (carry momentum),
+  beyond the current fixed-duration `SpringCurve`.
+- **Shared-element polish** — a `flightShuttleBuilder` (custom in-flight widget),
+  cross-fade between source/destination children, and opt-in for cross-*route*
+  hand-off (today: within-page; routes → use `Hero`).
+- **`LayoutGroup`** — coordinate multiple groups so they animate as one.
+- **Gesture integration** — `Draggable`/`DragTarget` drag-reorder with FLIP.
+- **Performance** — profile 1000+ items; consider RenderObject-based measurement
+  and virtualisation.
 
 ## v1.0 — Stability
 
 - API frozen
-- Rendered examples site (docs.page or Flutter Web demo)
+- Rendered examples site (Flutter Web demo)
 - Performance benchmarks documented
 
 ## Explicit non-goals
 
-- **A full Framer Motion port** — FLIP is one piece. Curves, springs,
-  variants, gestures — Flutter has strong built-ins for those (`AnimationController`,
-  `SpringSimulation`, `GestureDetector`). We compose with them, not replace them.
+- **A full Framer Motion port** — we compose with Flutter's built-ins
+  (`AnimationController`, `SpringSimulation`, `GestureDetector`), not replace
+  them. We fill the gaps they leave (declarative enter/exit + layout in any
+  container; within-page shared elements).
 - **Fancy vector / path animations** — that's Rive's job.
