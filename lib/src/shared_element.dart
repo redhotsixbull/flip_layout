@@ -80,7 +80,12 @@ class _SharedScopeInherited extends InheritedNotifier<SharedElementController> {
 typedef _RectGetter = Rect? Function();
 
 class _Registration {
-  _Registration(this.rectOf, this.child);
+  _Registration(this.token, this.rectOf, this.child);
+
+  /// Identity of the element currently holding this id (its State object). A
+  /// flight is only triggered when this *changes* (one widget replaced another),
+  /// never when the same element merely moves (scrolling, relayout).
+  final Object token;
   _RectGetter rectOf;
   Widget child;
 }
@@ -103,18 +108,21 @@ class SharedElementController extends ChangeNotifier {
 
   final Map<Object, _Registration> _active = {};
   final Map<Object, Rect> _lastRect = {};
+  final Map<Object, Object> _lastHolder = {};
   final Set<Object> _flying = {};
   bool _scheduled = false;
 
   bool isFlying(Object id) => _flying.contains(id);
 
-  void register(Object id, Rect? Function() rectOf, Widget child) {
-    _active[id] = _Registration(rectOf, child);
+  void register(Object id, Object token, Rect? Function() rectOf, Widget child) {
+    _active[id] = _Registration(token, rectOf, child);
     _schedule();
   }
 
-  void unregister(Object id) {
-    _active.remove(id);
+  void unregister(Object id, Object token) {
+    // Only drop it if the current registration is still this element (a newer
+    // holder may already have replaced it during a swap).
+    if (identical(_active[id]?.token, token)) _active.remove(id);
   }
 
   void _schedule() {
@@ -131,12 +139,22 @@ class SharedElementController extends ChangeNotifier {
     for (final entry in _active.entries.toList()) {
       final id = entry.key;
       if (_flying.contains(id)) continue;
-      final rect = entry.value.rectOf();
+      final reg = entry.value;
+      final rect = reg.rectOf();
       if (rect == null || rect.isEmpty) continue;
-      final last = _lastRect[id];
+
+      final lastRect = _lastRect[id];
+      final lastHolder = _lastHolder[id];
+      // Only fly when a *different* element now holds this id (a swap), and it
+      // landed somewhere new. The same element moving (scroll/relayout) is
+      // ignored — that's not a shared-element transition.
+      final swapped = lastHolder != null && !identical(lastHolder, reg.token);
+
       _lastRect[id] = rect;
-      if (last != null && last != rect) {
-        _fly(id, last, rect, entry.value.child);
+      _lastHolder[id] = reg.token;
+
+      if (swapped && lastRect != null && lastRect != rect) {
+        _fly(id, lastRect, rect, reg.child);
       }
     }
   }
@@ -216,15 +234,16 @@ class _MotionSharedIdState extends State<MotionSharedId> {
 
   @override
   void dispose() {
-    _scope?.unregister(widget.id);
+    _scope?.unregister(widget.id, this);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _scope;
-    // Register (idempotent) so the scope can track/fly this id.
-    controller?.register(widget.id, _measure, widget.child);
+    // Register (idempotent). `this` is the identity token: a flight only fires
+    // when a *different* element takes over the id, not when this one moves.
+    controller?.register(widget.id, this, _measure, widget.child);
     final flying = controller?.isFlying(widget.id) ?? false;
 
     return KeyedSubtree(

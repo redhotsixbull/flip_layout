@@ -273,7 +273,7 @@ class _SharedDemoState extends State<_SharedDemo> {
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
               children: [
-                for (var i = 0; i < 9; i++)
+                for (var i = 0; i < 18; i++) // enough to scroll
                   GestureDetector(
                     onTap: () => setState(() => _selected = i),
                     child: MotionSharedId(id: i, child: _tile(i)),

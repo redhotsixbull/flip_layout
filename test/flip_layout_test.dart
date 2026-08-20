@@ -379,34 +379,52 @@ void main() {
   });
 
   group('MotionSharedId', () {
-    testWidgets('flies a copy when the shared element moves', (tester) async {
-      var expanded = false;
+    testWidgets('flies a copy when the id is handed to a different widget',
+        (tester) async {
+      var alt = false;
+      late StateSetter setter;
       Widget build() => MaterialApp(
             home: Scaffold(
               body: MotionSharedScope(
                 duration: const Duration(milliseconds: 200),
                 child: StatefulBuilder(
-                  builder: (context, setState) => Stack(
-                    children: [
-                      Positioned(
-                        left: expanded ? 180 : 0,
-                        top: expanded ? 180 : 0,
-                        child: MotionSharedId(
-                          id: 'x',
-                          child: GestureDetector(
-                            onTap: () => setState(() => expanded = !expanded),
-                            child: Container(
-                              width: expanded ? 120 : 40,
-                              height: expanded ? 120 : 40,
-                              color: const Color(0xFFFF0000),
-                              child: const Text('X',
-                                  textDirection: TextDirection.ltr),
+                  builder: (context, setState) {
+                    setter = setState;
+                    return Stack(
+                      children: [
+                        if (!alt)
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            child: MotionSharedId(
+                              id: 'x',
+                              key: const ValueKey('a'),
+                              child: Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: const Color(0xFFFF0000),
+                                  child: const Text('X',
+                                      textDirection: TextDirection.ltr)),
+                            ),
+                          )
+                        else
+                          Positioned(
+                            left: 180,
+                            top: 180,
+                            child: MotionSharedId(
+                              id: 'x',
+                              key: const ValueKey('b'),
+                              child: Container(
+                                  width: 120,
+                                  height: 120,
+                                  color: const Color(0xFFFF0000),
+                                  child: const Text('X',
+                                      textDirection: TextDirection.ltr)),
                             ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -414,9 +432,8 @@ void main() {
 
       await tester.pumpWidget(build());
       await tester.pumpAndSettle();
-      expect(find.text('X'), findsOneWidget);
+      setter(() => alt = true); // hand the id to a different widget → fly
 
-      await tester.tap(find.text('X'));
       var sawFlight = false;
       for (var i = 0; i < 12 && !sawFlight; i++) {
         await tester.pump(const Duration(milliseconds: 16));
@@ -427,6 +444,52 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(find.text('X'), findsOneWidget, reason: 'flight cleaned up');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('does NOT fly when the same element merely moves (scroll)',
+        (tester) async {
+      var top = 0.0;
+      late StateSetter setter;
+      Widget build() => MaterialApp(
+            home: Scaffold(
+              body: MotionSharedScope(
+                duration: const Duration(milliseconds: 200),
+                child: StatefulBuilder(
+                  builder: (context, setState) {
+                    setter = setState;
+                    return Stack(
+                      children: [
+                        Positioned(
+                          left: 0,
+                          top: top,
+                          child: MotionSharedId(
+                            id: 'y',
+                            child: Container(
+                                width: 40,
+                                height: 40,
+                                color: const Color(0xFF00FF00),
+                                child: const Text('Y',
+                                    textDirection: TextDirection.ltr)),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(build());
+      await tester.pumpAndSettle();
+      setter(() => top = 320); // same element moves (like a scroll)
+
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(tester.widgetList(find.text('Y')).length, 1,
+            reason: 'same-element movement must not spawn a flying copy');
+      }
       expect(tester.takeException(), isNull);
     });
   });
