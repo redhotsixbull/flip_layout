@@ -310,5 +310,85 @@ void main() {
       );
       expect(tester.takeException(), isAssertionError);
     });
+
+    testWidgets('exitTransitionBuilder is used only for leaving children',
+        (tester) async {
+      Widget host(List<int> items) => MaterialApp(
+            home: Scaffold(
+              body: MotionGroup(
+                duration: const Duration(milliseconds: 200),
+                animateInitial: false,
+                exitTransitionBuilder: (context, animation, child) =>
+                    RotationTransition(turns: animation, child: child),
+                children: [
+                  for (final i in items)
+                    SizedBox(key: ValueKey(i), height: 40, child: Text('e$i')),
+                ],
+                builder: (context, children) => Column(children: children),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(host([1, 2, 3]));
+      await tester.pump();
+
+      await tester.pumpWidget(host([1, 3])); // remove 2
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // The leaving child (2) is wrapped by the exit builder...
+      expect(
+        find.ancestor(
+            of: find.text('e2'), matching: find.byType(RotationTransition)),
+        findsOneWidget,
+        reason: 'the leaving child uses the exit builder',
+      );
+      // ...but a surviving child (1) is not.
+      expect(
+        find.ancestor(
+            of: find.text('e1'), matching: find.byType(RotationTransition)),
+        findsNothing,
+        reason: 'present children use the enter builder, not the exit one',
+      );
+
+      await tester.pumpAndSettle();
+      expect(find.text('e2'), findsNothing, reason: 'removed after exit');
+    });
+  });
+
+  group('MotionConfig', () {
+    testWidgets('reduceMotion skips the LayoutMotion slide (instant)',
+        (tester) async {
+      var order = [1, 2, 3];
+      late StateSetter setter;
+      Widget build() => MaterialApp(
+            home: Scaffold(
+              body: MotionConfig(
+                reduceMotion: true,
+                child: StatefulBuilder(
+                  builder: (context, setState) {
+                    setter = setState;
+                    return Column(
+                      children: [
+                        for (final i in order)
+                          LayoutMotion(
+                            key: ValueKey(i),
+                            child: SizedBox(height: 60, child: Text('z$i')),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(build());
+      await tester.pump();
+      setter(() => order = [3, 2, 1]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 8));
+      expect(_translateOf(tester, 'z1').distance, lessThan(0.01),
+          reason: 'reduced motion → jump to new position, no slide');
+    });
   });
 }

@@ -26,6 +26,19 @@ animates the collection as `children` changes:
 - Every child MUST have a unique `Key` (asserted).
 - Controllers are created per child and disposed on exit/removal and on widget
   dispose.
+- `transitionBuilder` drives enter (0→1); `exitTransitionBuilder` (when given)
+  drives exit (1→0), else `transitionBuilder` is reused for both.
+
+## 0b. `MotionConfig` — inherited defaults
+
+- Provides subtree-wide `duration`/`curve`/`stagger` defaults. Resolution for
+  any value: the widget's own argument → nearest `MotionConfig` → built-in
+  default.
+- `reduceMotion`: when true (or, when null, when `MediaQuery.disableAnimations`
+  is set) every effective duration/stagger collapses to zero, so changes apply
+  **instantly** with no slide/fade — `LayoutMotion` jumps to the new position
+  and `MotionGroup` add/remove is immediate. Honouring the OS accessibility
+  setting is automatic.
 
 ## 1. `LayoutMotion` — the FLIP loop
 

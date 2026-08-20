@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import 'layout_motion.dart';
+import 'motion_config.dart';
 
 /// Arranges [children] through [builder] (a `Wrap`, `Column`, `GridView`, …)
 /// and declaratively animates the collection as it changes:
@@ -31,11 +32,12 @@ class MotionGroup extends StatefulWidget {
     super.key,
     required this.children,
     required this.builder,
-    this.duration = const Duration(milliseconds: 300),
-    this.curve = Curves.easeOutCubic,
-    this.stagger = Duration.zero,
+    this.duration,
+    this.curve,
+    this.stagger,
     this.animateInitial = true,
     this.transitionBuilder = defaultTransition,
+    this.exitTransitionBuilder,
   });
 
   /// The desired children. Each must have a unique [Key].
@@ -44,21 +46,33 @@ class MotionGroup extends StatefulWidget {
   /// Arranges the (animation-wrapped) children into a layout.
   final Widget Function(BuildContext context, List<Widget> children) builder;
 
-  final Duration duration;
-  final Curve curve;
+  /// Enter/exit + slide duration. When null, inherits from an ancestor
+  /// [MotionConfig] (else 300ms); zero when motion is reduced.
+  final Duration? duration;
+
+  /// Curve for enter/exit + slide. When null, inherits from [MotionConfig].
+  final Curve? curve;
 
   /// Delay applied between successive children entering in the same batch, for
-  /// a staggered reveal (Framer Motion's `staggerChildren`). Zero = together.
-  final Duration stagger;
+  /// a staggered reveal (Framer Motion's `staggerChildren`). When null, inherits
+  /// from [MotionConfig] (else zero = together).
+  final Duration? stagger;
 
   /// Whether the very first set of children animates in. Set false to have the
   /// initial content appear instantly (like Framer Motion's `initial={false}`).
   final bool animateInitial;
 
-  /// Builds the enter/exit transition. [animation] runs 0→1 on enter and 1→0 on
-  /// exit. Defaults to a combined fade + scale.
+  /// Builds the **enter** transition (and the exit transition too, unless
+  /// [exitTransitionBuilder] is given). [animation] runs 0→1. Defaults to a
+  /// combined fade + scale.
   final Widget Function(
       BuildContext context, Animation<double> animation, Widget child) transitionBuilder;
+
+  /// Optional separate **exit** transition, so entering and leaving can differ
+  /// (e.g. slide up on enter, shrink on exit). [animation] runs 1→0 while
+  /// leaving. When null, [transitionBuilder] is used for exits too.
+  final Widget Function(
+      BuildContext context, Animation<double> animation, Widget child)? exitTransitionBuilder;
 
   static Widget defaultTransition(
       BuildContext context, Animation<double> animation, Widget child) {
@@ -86,11 +100,32 @@ class _Slot {
 
 class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin {
   final List<_Slot> _slots = [];
+  MotionConfig? _config;
+  bool _reduce = false;
+
+  Duration get _dur => _reduce
+      ? Duration.zero
+      : (widget.duration ?? _config?.duration ?? const Duration(milliseconds: 300));
+  Curve get _curve => widget.curve ?? _config?.curve ?? Curves.easeOutCubic;
+  Duration get _stag =>
+      _reduce ? Duration.zero : (widget.stagger ?? _config?.stagger ?? Duration.zero);
 
   @override
   void initState() {
     super.initState();
     _sync(initial: true);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _config = MotionConfig.maybeOf(context);
+    _reduce = _config?.reduceMotion ??
+        MediaQuery.maybeOf(context)?.disableAnimations ??
+        false;
+    for (final s in _slots) {
+      s.controller.duration = _dur;
+    }
   }
 
   @override
@@ -112,13 +147,12 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
       if (key == null) continue;
       final slot = existing[key];
       if (slot == null) {
-        final controller =
-            AnimationController(vsync: this, duration: widget.duration);
+        final controller = AnimationController(vsync: this, duration: _dur);
         final s = _Slot(
           key,
           child,
           controller,
-          CurvedAnimation(parent: controller, curve: widget.curve),
+          CurvedAnimation(parent: controller, curve: _curve),
         );
         controller.addStatusListener((status) {
           if (status == AnimationStatus.dismissed && s.exiting) _removeSlot(s);
@@ -172,10 +206,11 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
         s.controller.value = 1.0;
         continue;
       }
-      if (widget.stagger == Duration.zero) {
+      final stagger = _stag;
+      if (stagger == Duration.zero) {
         s.controller.forward();
       } else {
-        Future<void>.delayed(widget.stagger * i, () {
+        Future<void>.delayed(stagger * i, () {
           if (mounted && _slots.contains(s) && !s.exiting) s.controller.forward();
         });
       }
@@ -201,13 +236,15 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
+    final exitBuilder = widget.exitTransitionBuilder ?? widget.transitionBuilder;
     final children = <Widget>[
       for (final s in _slots)
         LayoutMotion(
           key: s.key,
-          duration: widget.duration,
-          curve: widget.curve,
-          child: widget.transitionBuilder(context, s.animation, s.widget),
+          duration: _dur,
+          curve: _curve,
+          child: (s.exiting ? exitBuilder : widget.transitionBuilder)(
+              context, s.animation, s.widget),
         ),
     ];
     return widget.builder(context, children);

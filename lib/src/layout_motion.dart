@@ -2,6 +2,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
+import 'motion_config.dart';
+
 /// A widget that smoothly animates when its own position on screen changes
 /// due to layout changes in ancestors (reordering, filtering, expansion, ...).
 ///
@@ -27,15 +29,20 @@ class LayoutMotion extends StatefulWidget {
   const LayoutMotion({
     super.key,
     required this.child,
-    this.duration = const Duration(milliseconds: 300),
-    this.curve = Curves.easeOutCubic,
+    this.duration,
+    this.curve,
     this.animateSize = false,
     this.onEnd,
   });
 
   final Widget child;
-  final Duration duration;
-  final Curve curve;
+
+  /// Slide duration. When null, inherits from an ancestor [MotionConfig] (else
+  /// 300ms). Collapses to zero when motion is reduced.
+  final Duration? duration;
+
+  /// Slide curve. When null, inherits from [MotionConfig] (else easeOutCubic).
+  final Curve? curve;
 
   /// If true, animate `Size` changes in addition to position. Off by default
   /// because size interpolation via `Transform.scale` distorts child rendering
@@ -58,12 +65,16 @@ class _LayoutMotionState extends State<LayoutMotion>
   Offset _fromOffset = Offset.zero;
   double _fromScaleX = 1.0;
   double _fromScaleY = 1.0;
+  Curve _curve = Curves.easeOutCubic;
+  bool _reduce = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: widget.duration)
-      ..addStatusListener(_onStatus);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..addStatusListener(_onStatus);
   }
 
   void _onStatus(AnimationStatus status) {
@@ -76,13 +87,7 @@ class _LayoutMotionState extends State<LayoutMotion>
     }
   }
 
-  @override
-  void didUpdateWidget(covariant LayoutMotion oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.duration != oldWidget.duration) {
-      _controller.duration = widget.duration;
-    }
-  }
+  // Duration/curve/reduce are resolved from context in [build].
 
   /// Measures the widget's untransformed bounds. Inside a [Scrollable] the
   /// result is in scroll-content space so scrolling doesn't register as a move.
@@ -120,13 +125,22 @@ class _LayoutMotionState extends State<LayoutMotion>
       // otherwise produce a large bogus delta.
       if (prev.isEmpty || current.isEmpty) return;
 
+      if (_reduce) {
+        // Reduced motion: jump to the new position with no slide.
+        _fromOffset = Offset.zero;
+        _fromScaleX = 1.0;
+        _fromScaleY = 1.0;
+        _controller.value = 1.0;
+        return;
+      }
+
       final delta = prev.topLeft - current.topLeft;
       // Interruptible: if a slide is already in flight, start the new one from
       // the element's *current on-screen* offset instead of snapping to 0, so a
       // reorder-during-reorder stays position-continuous (no visible jump).
       final currentTranslate = _controller.isAnimating
           ? Offset.lerp(
-              _fromOffset, Offset.zero, widget.curve.transform(_controller.value))!
+              _fromOffset, Offset.zero, _curve.transform(_controller.value))!
           : Offset.zero;
       _fromOffset = delta + currentTranslate;
 
@@ -143,6 +157,11 @@ class _LayoutMotionState extends State<LayoutMotion>
 
   @override
   Widget build(BuildContext context) {
+    // Resolve duration/curve/reduce from the nearest MotionConfig (or defaults).
+    _reduce = MotionConfig.reduceMotionOf(context);
+    _curve = MotionConfig.curveOf(context, widget.curve);
+    _controller.duration = MotionConfig.durationOf(context, widget.duration);
+
     _scheduleMeasurement();
     // The GlobalKey lives on a MetaData proxy that sits ABOVE the Transform, so
     // measuring it yields the untransformed layout position.
@@ -151,7 +170,7 @@ class _LayoutMotionState extends State<LayoutMotion>
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
-          final t = widget.curve.transform(_controller.value);
+          final t = _curve.transform(_controller.value);
           final translate = Offset.lerp(_fromOffset, Offset.zero, t)!;
           if (!widget.animateSize) {
             return Transform.translate(offset: translate, child: child);

@@ -1,5 +1,11 @@
 ## 0.1.0
 
+- **New:** `MotionConfig` — set `duration`/`curve`/`stagger` defaults for a
+  subtree once, and honour reduced-motion (config flag, or the OS accessibility
+  setting automatically) by skipping animations. `LayoutMotion`/`MotionGroup`
+  `duration`/`curve`/`stagger` are now nullable and inherit from it.
+- **New:** `MotionGroup.exitTransitionBuilder` — give leaving children a
+  different transition from entering ones.
 - **New:** `LayoutMotion` slides are now **interruptible** — a layout change
   mid-slide re-targets from the current on-screen position instead of snapping
   to 0, so rapid reorders/filters stay smooth (also benefits `MotionGroup`).

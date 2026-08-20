@@ -61,11 +61,29 @@ MotionGroup(
   widget that's already gone from the tree).
 - **Layout** — survivors slide (FLIP) to their new positions.
 - `stagger` — delay between children entering, for a staggered reveal.
-- `transitionBuilder` — customise the enter/exit transition (default: fade +
-  scale).
+- `transitionBuilder` / `exitTransitionBuilder` — customise the enter and (optionally
+  separate) exit transitions. Default: fade + scale.
 - `animateInitial` — whether the first batch animates in.
 
 Every child **must** carry a unique `Key`.
+
+## `MotionConfig` — set defaults once
+
+Wrap a subtree to give every `MotionGroup`/`LayoutMotion` below it the same
+`duration`/`curve`/`stagger`, and to honour reduced-motion:
+
+```dart
+MotionConfig(
+  duration: const Duration(milliseconds: 220),
+  curve: Curves.easeOutBack,
+  // reduceMotion: null → follows the OS "reduce motion" setting automatically
+  child: MyPage(),
+)
+```
+
+Precedence for any value: the widget's own argument → the nearest `MotionConfig`
+→ a built-in default. When motion is reduced (config or the platform
+accessibility setting), animations are skipped and changes apply instantly.
 
 ## `LayoutMotion` — position-only, for a single widget
 
