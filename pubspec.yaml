@@ -1,0 +1,21 @@
+name: flip_layout
+description: Auto layout animation — widgets that smoothly animate when their position or size changes. Uses the FLIP technique.
+version: 0.0.1
+homepage: https://github.com/redhotsixbull/flip_layout
+repository: https://github.com/redhotsixbull/flip_layout
+issue_tracker: https://github.com/redhotsixbull/flip_layout/issues
+
+environment:
+  sdk: ^3.9.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
