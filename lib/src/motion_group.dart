@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'layout_motion.dart';
 import 'motion_config.dart';
+import 'motion_spring.dart';
 
 /// Arranges [children] through [builder] (a `Wrap`, `Column`, `GridView`, …)
 /// and declaratively animates the collection as it changes:
@@ -34,10 +36,14 @@ class MotionGroup extends StatefulWidget {
     required this.builder,
     this.duration,
     this.curve,
+    this.spring,
     this.stagger,
+    this.exitStagger,
     this.animateInitial = true,
     this.transitionBuilder = defaultTransition,
     this.exitTransitionBuilder,
+    this.onEnter,
+    this.onExitComplete,
   });
 
   /// The desired children. Each must have a unique [Key].
@@ -53,10 +59,32 @@ class MotionGroup extends StatefulWidget {
   /// Curve for enter/exit + slide. When null, inherits from [MotionConfig].
   final Curve? curve;
 
+  /// Velocity-preserving [MotionSpring] for the **layout (FLIP) slide** of
+  /// surviving children. When set (own arg or via [MotionConfig]), reorders keep
+  /// momentum through interruptions. Enter/exit transitions still use
+  /// [duration]/[curve]. When null, the slide uses the curve path.
+  final MotionSpring? spring;
+
   /// Delay applied between successive children entering in the same batch, for
   /// a staggered reveal (Framer Motion's `staggerChildren`). When null, inherits
   /// from [MotionConfig] (else zero = together).
   final Duration? stagger;
+
+  /// Delay applied between successive children *leaving* in the same removal
+  /// batch, so a group of children exit one-after-another rather than all at
+  /// once. Each leaving child stays fully visible until its turn. Zero (the
+  /// default) exits them together. Collapses to zero when motion is reduced.
+  final Duration? exitStagger;
+
+  /// Called once when a child (identified by its [Key]) has finished entering —
+  /// its enter transition reached the end. Not called for a first batch placed
+  /// instantly via `animateInitial: false` (no transition runs). Framer Motion's
+  /// per-child `onAnimationComplete`.
+  final void Function(Key key)? onEnter;
+
+  /// Called once when a leaving child has finished its exit transition and has
+  /// been removed from the tree (Framer Motion's `onExitComplete`, per child).
+  final void Function(Key key)? onExitComplete;
 
   /// Whether the very first set of children animates in. Set false to have the
   /// initial content appear instantly (like Framer Motion's `initial={false}`).
@@ -73,6 +101,14 @@ class MotionGroup extends StatefulWidget {
   /// leaving. When null, [transitionBuilder] is used for exits too.
   final Widget Function(
       BuildContext context, Animation<double> animation, Widget child)? exitTransitionBuilder;
+
+  /// In debug builds, `MotionGroup` prints a one-time warning when its child
+  /// count exceeds this threshold, because it manages **all** children at once
+  /// (and keeps exiting ones mounted) with a FLIP measurement per child — there
+  /// is no virtualisation. Large, scrolling collections should use a windowed
+  /// list (`AnimatedList` / `SliverAnimatedList`) instead. Set to a larger value
+  /// (or `null` to silence) if you have profiled your case and accept the cost.
+  static int? debugChildCountWarningThreshold = 150;
 
   static Widget defaultTransition(
       BuildContext context, Animation<double> animation, Widget child) {
@@ -96,6 +132,10 @@ class _Slot {
   final AnimationController controller;
   final Animation<double> animation;
   bool exiting = false;
+
+  /// Set when a real enter animation is started, so `onEnter` fires on its
+  /// completion but NOT when a child is placed instantly (value set to 1).
+  bool notifyEnter = false;
 }
 
 class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin {
@@ -107,8 +147,11 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
       ? Duration.zero
       : (widget.duration ?? _config?.duration ?? const Duration(milliseconds: 300));
   Curve get _curve => widget.curve ?? _config?.curve ?? Curves.easeOutCubic;
+  MotionSpring? get _spring => widget.spring ?? _config?.spring;
   Duration get _stag =>
       _reduce ? Duration.zero : (widget.stagger ?? _config?.stagger ?? Duration.zero);
+  Duration get _exitStag =>
+      _reduce ? Duration.zero : (widget.exitStagger ?? Duration.zero);
 
   @override
   void initState() {
@@ -134,7 +177,25 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
     _sync(initial: false);
   }
 
+  bool _warnedLargeCount = false;
+
+  void _maybeWarnLargeCount() {
+    if (!kDebugMode || _warnedLargeCount) return;
+    final threshold = MotionGroup.debugChildCountWarningThreshold;
+    if (threshold == null || widget.children.length <= threshold) return;
+    _warnedLargeCount = true;
+    debugPrint(
+      'MotionGroup: ${widget.children.length} children exceeds '
+      '$threshold. MotionGroup manages every child at once (no '
+      'virtualisation) and keeps exiting ones mounted, so large scrolling '
+      'collections can be janky. Consider AnimatedList / SliverAnimatedList '
+      'for big lists, or raise MotionGroup.debugChildCountWarningThreshold to '
+      'silence this once profiled.',
+    );
+  }
+
   void _sync({required bool initial}) {
+    _maybeWarnLargeCount();
     final existing = {for (final s in _slots) s.key: s};
     final oldSlots = List<_Slot>.of(_slots);
     final oldIndex = {for (var i = 0; i < oldSlots.length; i++) oldSlots[i].key: i};
@@ -155,7 +216,13 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
           CurvedAnimation(parent: controller, curve: _curve),
         );
         controller.addStatusListener((status) {
-          if (status == AnimationStatus.dismissed && s.exiting) _removeSlot(s);
+          if (status == AnimationStatus.completed && !s.exiting && s.notifyEnter) {
+            s.notifyEnter = false;
+            widget.onEnter?.call(s.key);
+          } else if (status == AnimationStatus.dismissed && s.exiting) {
+            widget.onExitComplete?.call(s.key);
+            _removeSlot(s);
+          }
         });
         newBatch.add(s);
         present.add(s);
@@ -163,6 +230,7 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
         slot.widget = child;
         if (slot.exiting) {
           slot.exiting = false;
+          slot.notifyEnter = true;
           slot.controller.forward(); // revived before it finished leaving
         }
         present.add(slot);
@@ -171,13 +239,15 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
 
     final presentKeys = {for (final s in present) s.key};
 
-    // Anything that was here but isn't in `children` now → animate out.
+    // Anything that was here but isn't in `children` now → animate out. Newly
+    // removed slots are collected so their exit can be staggered.
     final exiting = <_Slot>[];
+    final newlyExiting = <_Slot>[];
     for (final s in oldSlots) {
       if (presentKeys.contains(s.key)) continue;
       if (!s.exiting) {
         s.exiting = true;
-        s.controller.reverse();
+        newlyExiting.add(s);
       }
       exiting.add(s);
     }
@@ -197,20 +267,44 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
       ..addAll(result);
 
     _startEnterAnimations(newBatch, initial: initial);
+    _startExitAnimations(newlyExiting);
+  }
+
+  void _startExitAnimations(List<_Slot> batch) {
+    final stagger = _exitStag;
+    for (var i = 0; i < batch.length; i++) {
+      final s = batch[i];
+      final delay = stagger * i;
+      if (delay == Duration.zero) {
+        s.controller.reverse();
+      } else {
+        // Each leaving child stays fully visible until its turn, then reverses.
+        Future<void>.delayed(delay, () {
+          if (mounted &&
+              _slots.contains(s) &&
+              s.exiting &&
+              s.controller.status != AnimationStatus.dismissed) {
+            s.controller.reverse();
+          }
+        });
+      }
+    }
   }
 
   void _startEnterAnimations(List<_Slot> batch, {required bool initial}) {
     for (var i = 0; i < batch.length; i++) {
       final s = batch[i];
       if (initial && !widget.animateInitial) {
+        // Placed instantly (no transition) — no onEnter for a non-animation.
         s.controller.value = 1.0;
         continue;
       }
-      final stagger = _stag;
-      if (stagger == Duration.zero) {
+      s.notifyEnter = true;
+      final delay = _stag * i;
+      if (delay == Duration.zero) {
         s.controller.forward();
       } else {
-        Future<void>.delayed(stagger * i, () {
+        Future<void>.delayed(delay, () {
           if (mounted && _slots.contains(s) && !s.exiting) s.controller.forward();
         });
       }
@@ -243,6 +337,7 @@ class _MotionGroupState extends State<MotionGroup> with TickerProviderStateMixin
           key: s.key,
           duration: _dur,
           curve: _curve,
+          spring: _spring,
           child: (s.exiting ? exitBuilder : widget.transitionBuilder)(
               context, s.animation, s.widget),
         ),
