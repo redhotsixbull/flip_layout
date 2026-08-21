@@ -1,4 +1,6 @@
-## 0.2.0
+## 0.2.0-dev.1
+
+Prerelease of the 0.2.0 line for testing on pub.dev before the stable cut.
 
 - **New:** `MotionSpring` — a **velocity-preserving** spring for position slides.
   Unlike `SpringCurve` (a fixed-duration spring *look*), it drives the slide with

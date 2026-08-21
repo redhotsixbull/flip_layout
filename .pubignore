@@ -1,0 +1,13 @@
+# Never publish build output or tool caches. A root .pubignore overrides the
+# root .gitignore for pub, so this re-states the important excludes explicitly.
+build/
+**/build/
+.dart_tool/
+.pub-cache/
+.pub/
+coverage/
+
+# OS / editor noise
+.DS_Store
+*.log
+*.swp
