@@ -311,6 +311,31 @@ void main() {
       expect(tester.takeException(), isAssertionError);
     });
 
+    testWidgets('warns once when child count exceeds the debug threshold',
+        (tester) async {
+      final logs = <String>[];
+      final original = debugPrint;
+      // debugPrint is a foundation debug var — it MUST be restored before the
+      // test body ends (the framework asserts this), so restore in a finally.
+      debugPrint = (String? m, {int? wrapWidth}) {
+        if (m != null) logs.add(m);
+      };
+      MotionGroup.debugChildCountWarningThreshold = 5;
+      addTearDown(() => MotionGroup.debugChildCountWarningThreshold = 150);
+      try {
+        await tester.pumpWidget(host([1, 2, 3, 4, 5, 6])); // 6 > 5
+        await tester.pump();
+        // Rebuild again — the warning must not repeat.
+        await tester.pumpWidget(host([1, 2, 3, 4, 5, 6, 7]));
+        await tester.pump();
+      } finally {
+        debugPrint = original;
+      }
+
+      expect(logs.where((l) => l.contains('exceeds')).length, 1,
+          reason: 'the large-collection warning fires exactly once');
+    });
+
     testWidgets('exitTransitionBuilder is used only for leaving children',
         (tester) async {
       Widget host(List<int> items) => MaterialApp(
@@ -353,6 +378,80 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('e2'), findsNothing, reason: 'removed after exit');
     });
+
+    testWidgets('onEnter/onExitComplete fire with the child key', (tester) async {
+      final entered = <Object>[];
+      final exited = <Object>[];
+      Widget lifecycleHost(List<int> items) => MaterialApp(
+            home: Scaffold(
+              body: MotionGroup(
+                duration: const Duration(milliseconds: 120),
+                animateInitial: false, // don't fire onEnter for the first batch
+                onEnter: (key) => entered.add((key as ValueKey).value),
+                onExitComplete: (key) => exited.add((key as ValueKey).value),
+                children: [
+                  for (final i in items)
+                    SizedBox(key: ValueKey(i), height: 40, child: Text('L$i')),
+                ],
+                builder: (context, children) => Column(children: children),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(lifecycleHost([1, 2]));
+      await tester.pump();
+      expect(entered, isEmpty, reason: 'animateInitial:false → no enter events');
+
+      await tester.pumpWidget(lifecycleHost([1, 2, 3])); // add 3
+      await tester.pumpAndSettle();
+      expect(entered, contains(3), reason: 'onEnter fired for the new child');
+
+      await tester.pumpWidget(lifecycleHost([1, 3])); // remove 2
+      await tester.pumpAndSettle();
+      expect(exited, contains(2),
+          reason: 'onExitComplete fired once the exit finished');
+      expect(find.text('L2'), findsNothing);
+    });
+
+    testWidgets('exitStagger delays later leavers (each stays visible in turn)',
+        (tester) async {
+      double fadeOf(String label) => tester
+          .widget<FadeTransition>(find
+              .ancestor(of: find.text(label), matching: find.byType(FadeTransition))
+              .first)
+          .opacity
+          .value;
+
+      Widget staggerHost(List<int> items) => MaterialApp(
+            home: Scaffold(
+              body: MotionGroup(
+                duration: const Duration(milliseconds: 120),
+                animateInitial: false,
+                exitStagger: const Duration(milliseconds: 200),
+                children: [
+                  for (final i in items)
+                    SizedBox(key: ValueKey(i), height: 40, child: Text('x$i')),
+                ],
+                builder: (context, children) => Column(children: children),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(staggerHost([1, 2, 3]));
+      await tester.pump();
+
+      // Remove 1 and 2 together; with a 200ms exit stagger the first leaver
+      // (1) starts fading immediately while the second (2) waits its turn.
+      await tester.pumpWidget(staggerHost([3]));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(fadeOf('x1'), lessThan(1.0), reason: 'first leaver is exiting');
+      expect(fadeOf('x2'), 1.0,
+          reason: 'second leaver still fully visible until its staggered turn');
+
+      await tester.pumpAndSettle();
+      expect(find.text('x1'), findsNothing);
+      expect(find.text('x2'), findsNothing);
+    });
   });
 
   group('SpringCurve', () {
@@ -375,6 +474,125 @@ void main() {
       for (var i = 0; i <= 40; i++) {
         expect(spring.transform(i / 40), lessThanOrEqualTo(1.0 + 1e-6));
       }
+    });
+  });
+
+  group('MotionSpring (velocity-preserving)', () {
+    test('presets and equality/description', () {
+      expect(MotionSpring.gentle, isNot(MotionSpring.bouncy));
+      const a = MotionSpring(stiffness: 200, damping: 18);
+      const b = MotionSpring(stiffness: 200, damping: 18);
+      expect(a, equals(b));
+      expect(a.hashCode, equals(b.hashCode));
+      final d = a.description;
+      expect(d.stiffness, 200);
+      expect(d.damping, 18);
+      expect(d.mass, 1.0);
+    });
+
+    // Reads the *current* order via a getter so the StatefulBuilder rebuild
+    // sees mutations (capturing the list by value would freeze the first order).
+    Widget springColumn(
+            List<int> Function() order, void Function(StateSetter) capture,
+            {MotionSpring spring = const MotionSpring(stiffness: 200, damping: 18)}) =>
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                capture(setState);
+                return Column(
+                  children: [
+                    for (final i in order())
+                      LayoutMotion(
+                        key: ValueKey(i),
+                        spring: spring,
+                        child: SizedBox(height: 60, child: Text('s$i')),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+
+    testWidgets('a spring reorder slides then settles exactly to identity',
+        (tester) async {
+      var order = [1, 2, 3];
+      late StateSetter setter;
+      await tester.pumpWidget(springColumn(() => order, (s) => setter = s));
+      await tester.pump();
+      expect(_translateOf(tester, 's1').distance, lessThan(0.01));
+
+      setter(() => order = [3, 2, 1]);
+      await tester.pump(); // rebuild + post-frame → spring starts
+      await tester.pump(const Duration(milliseconds: 40)); // mid-slide
+      expect(_translateOf(tester, 's1').distance, greaterThan(1.0),
+          reason: 'moved child is mid spring-slide, not snapped');
+
+      await tester.pumpAndSettle();
+      expect(_translateOf(tester, 's1').distance, lessThan(0.01),
+          reason: 'spring settles exactly to identity');
+    });
+
+    testWidgets('a re-target mid-spring stays continuous (momentum) and settles',
+        (tester) async {
+      var order = [1, 2, 3];
+      late StateSetter setter;
+      await tester.pumpWidget(springColumn(() => order, (s) => setter = s));
+      await tester.pump();
+
+      setter(() => order = [3, 2, 1]); // first spring
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      final mid = _translateOf(tester, 's1').distance;
+      expect(mid, greaterThan(1.0), reason: 'first spring in flight');
+
+      setter(() => order = [1, 2, 3]); // interrupt: re-target
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      final afterInterrupt = _translateOf(tester, 's1').distance;
+      // Momentum is carried from the in-flight velocity: the offset must evolve
+      // continuously from where it was, not snap to a wildly different value.
+      expect(afterInterrupt, lessThan(mid + 200),
+          reason: 'velocity carried across the re-target — no discontinuity');
+
+      await tester.pumpAndSettle();
+      expect(_translateOf(tester, 's1').distance, lessThan(0.01),
+          reason: 'settles cleanly after the interruption');
+    });
+
+    testWidgets('reduceMotion skips the spring slide (instant)', (tester) async {
+      var order = [1, 2, 3];
+      late StateSetter setter;
+      Widget build() => MaterialApp(
+            home: Scaffold(
+              body: MotionConfig(
+                reduceMotion: true,
+                child: StatefulBuilder(
+                  builder: (context, setState) {
+                    setter = setState;
+                    return Column(
+                      children: [
+                        for (final i in order)
+                          LayoutMotion(
+                            key: ValueKey(i),
+                            spring: const MotionSpring(),
+                            child: SizedBox(height: 60, child: Text('q$i')),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+      await tester.pumpWidget(build());
+      await tester.pump();
+      setter(() => order = [3, 2, 1]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 8));
+      expect(_translateOf(tester, 'q1').distance, lessThan(0.01),
+          reason: 'reduced motion → jump, no spring');
     });
   });
 
@@ -604,6 +822,217 @@ void main() {
         expect(tester.widgetList(find.text('R')).length, 1,
             reason: 'reappearing after absence is not a swap → no flight');
       }
+      expect(tester.takeException(), isNull);
+    });
+
+    // A source→destination swap under a scope, parameterised by the scope's
+    // flight options, so the shuttle tests share one harness.
+    Widget swapHost({
+      required bool alt,
+      required void Function(StateSetter) capture,
+      MotionFlightShuttleBuilder? flightShuttleBuilder,
+      bool crossFade = false,
+    }) {
+      Widget box(String t) => SizedBox(
+          width: 40,
+          height: 40,
+          child: Text(t, textDirection: TextDirection.ltr));
+      return MaterialApp(
+        home: Scaffold(
+          body: MotionSharedScope(
+            duration: const Duration(milliseconds: 200),
+            flightShuttleBuilder: flightShuttleBuilder,
+            crossFade: crossFade,
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                capture(setState);
+                return Stack(
+                  children: [
+                    if (!alt)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        child: MotionSharedId(
+                          id: 'x',
+                          key: const ValueKey('a'),
+                          child: box('SRC'),
+                        ),
+                      )
+                    else
+                      Positioned(
+                        left: 180,
+                        top: 180,
+                        child: MotionSharedId(
+                          id: 'x',
+                          key: const ValueKey('b'),
+                          child: box('DST'),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('flightShuttleBuilder renders a custom in-flight widget with '
+        'both source and destination children', (tester) async {
+      var alt = false;
+      late StateSetter setter;
+      Widget host() => swapHost(
+            alt: alt,
+            capture: (s) => setter = s,
+            flightShuttleBuilder: (context, animation, fromChild, toChild) =>
+                Stack(fit: StackFit.expand, children: [
+              fromChild,
+              toChild,
+              const Center(
+                  child: Text('SHUTTLE', textDirection: TextDirection.ltr)),
+            ]),
+          );
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+      setter(() => alt = true);
+      await tester.pumpWidget(host());
+
+      var sawShuttle = false;
+      for (var i = 0; i < 12 && !sawShuttle; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (find.text('SHUTTLE').evaluate().isNotEmpty) sawShuttle = true;
+      }
+      expect(sawShuttle, isTrue,
+          reason: 'the custom shuttle is shown during the flight');
+      // The source child only exists in the overlay shuttle now (the real
+      // source widget was removed from the tree), proving fromChild is passed.
+      expect(find.text('SRC'), findsWidgets,
+          reason: 'flightShuttleBuilder received the source child');
+
+      await tester.pumpAndSettle();
+      expect(find.text('SHUTTLE'), findsNothing,
+          reason: 'shuttle removed when the flight completes');
+      expect(find.text('SRC'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('crossFade shuttle carries both children during the flight',
+        (tester) async {
+      var alt = false;
+      late StateSetter setter;
+      Widget host() =>
+          swapHost(alt: alt, capture: (s) => setter = s, crossFade: true);
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+      setter(() => alt = true);
+      await tester.pumpWidget(host());
+
+      var sawBoth = false;
+      for (var i = 0; i < 12 && !sawBoth; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        // The source child ('SRC') exists only in the overlay cross-fade now.
+        if (find.text('SRC').evaluate().isNotEmpty &&
+            find.text('DST').evaluate().isNotEmpty) {
+          sawBoth = true;
+        }
+      }
+      expect(sawBoth, isTrue,
+          reason: 'cross-fade shows source and destination together');
+
+      await tester.pumpAndSettle();
+      expect(find.text('SRC'), findsNothing,
+          reason: 'cross-fade overlay cleaned up');
+      expect(find.text('DST'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('newest of three holders of one id is the visible one '
+        '(birth-order heuristic)', (tester) async {
+      double opacityOf(Key k) => tester
+          .widget<Opacity>(find
+              .descendant(of: find.byKey(k), matching: find.byType(Opacity))
+              .first)
+          .opacity;
+
+      Widget holder(String key) => Positioned(
+            left: 0,
+            top: 0,
+            child: MotionSharedId(
+              id: 'multi',
+              key: ValueKey(key),
+              child: SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: Text(key, textDirection: TextDirection.ltr)),
+            ),
+          );
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MotionSharedScope(
+            child: Stack(children: [holder('h1'), holder('h2'), holder('h3')]),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // h3 was built last → newest by birth order → the visible holder.
+      expect(opacityOf(const ValueKey('h3')), 1.0);
+      expect(opacityOf(const ValueKey('h1')), 0.0);
+      expect(opacityOf(const ValueKey('h2')), 0.0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('rapid open/close swaps settle cleanly to one holder',
+        (tester) async {
+      var alt = false;
+      late StateSetter setter;
+      Widget host() => swapHost(alt: alt, capture: (s) => setter = s);
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      // Toggle several times with only a couple of frames between each — each
+      // flip hands the id to the other widget mid-flight.
+      for (var i = 0; i < 4; i++) {
+        setter(() => alt = !alt);
+        await tester.pumpWidget(host());
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await tester.pumpAndSettle();
+
+      // Whichever end we finished on, exactly one real widget survives and no
+      // overlay copies leak.
+      final surviving = alt ? 'DST' : 'SRC';
+      final gone = alt ? 'SRC' : 'DST';
+      expect(find.text(surviving), findsOneWidget);
+      expect(find.text(gone), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a flight interrupted by a new flight settles cleanly',
+        (tester) async {
+      var alt = false;
+      late StateSetter setter;
+      Widget host() => swapHost(alt: alt, capture: (s) => setter = s);
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      setter(() => alt = true); // start SRC→DST flight
+      await tester.pumpWidget(host());
+      await tester.pump(const Duration(milliseconds: 40)); // mid-flight
+
+      setter(() => alt = false); // interrupt with DST→SRC flight
+      await tester.pumpWidget(host());
+      await tester.pump(const Duration(milliseconds: 40));
+
+      await tester.pumpAndSettle();
+      expect(find.text('SRC'), findsOneWidget,
+          reason: 'ends on the source, overlays cleaned up');
+      expect(find.text('DST'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
