@@ -20,17 +20,28 @@
 - **`MotionSharedScope` / `MotionSharedId`** — within-page shared-element
   "magic move" (Hero-like, no route change).
 
-## Next (v0.2+)
+## v0.2.0 — Physics + shared-element polish + lifecycle (shipped)
 
-- **Velocity-preserving spring** — true physics interruption (carry momentum),
-  beyond the current fixed-duration `SpringCurve`.
-- **Shared-element polish** — a `flightShuttleBuilder` (custom in-flight widget),
-  cross-fade between source/destination children, and opt-in for cross-*route*
-  hand-off (today: within-page; routes → use `Hero`).
+- **`MotionSpring`** — velocity-preserving spring: live `SpringSimulation` on an
+  unbounded controller, so a mid-slide re-target **carries momentum**. Wired
+  through `LayoutMotion`/`MotionGroup`/`MotionConfig` via `spring:`;
+  `SpringCurve` stays for the simple fixed-duration case.
+- **Shared-element polish** — `flightShuttleBuilder` (custom in-flight widget)
+  and `crossFade` (built-in source→destination dissolve); birth-order heuristic
+  and its limits documented.
+- **`MotionGroup` lifecycle** — `onEnter`/`onExitComplete` callbacks and
+  `exitStagger` (cascade leavers).
+- **Large-collection guard** — one-time debug warning past
+  `MotionGroup.debugChildCountWarningThreshold`.
+
+## Next (v0.3+)
+
+- **Cross-*route* shared-element** opt-in (today: within-page; routes → `Hero`).
+- **`SliverMotionGroup`** — virtualised group that only animates on-screen items
+  (integrate with `SliverAnimatedList`); profile 1000+ items.
+- **Non-distorting `animateSize`** — a clip/align-based size option.
 - **`LayoutGroup`** — coordinate multiple groups so they animate as one.
 - **Gesture integration** — `Draggable`/`DragTarget` drag-reorder with FLIP.
-- **Performance** — profile 1000+ items; consider RenderObject-based measurement
-  and virtualisation.
 
 ## v1.0 — Stability
 

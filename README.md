@@ -8,7 +8,7 @@ change your state, and your UI animates itself. Inspired by
 [Framer Motion](https://www.framer.com/motion/)'s `layout` prop,
 `AnimatePresence`, and shared layout transitions.
 
-> **Status:** `0.1.0` — early but usable. Core is covered by tests and runs on
+> **Status:** `0.2.0` — early but usable. Core is covered by tests and runs on
 > every platform (mobile, desktop, **web**).
 
 ## Why flip_layout?
@@ -54,7 +54,7 @@ cd example && flutter run -d chrome # web
 
 ```yaml
 dependencies:
-  flip_layout: ^0.1.0
+  flip_layout: ^0.2.0
 ```
 
 ## `MotionGroup` — the main event
@@ -79,11 +79,20 @@ MotionGroup(
   widget that's already gone from the tree).
 - **Layout** — survivors slide (FLIP) to their new positions.
 - `stagger` — delay between children entering, for a staggered reveal.
+- `exitStagger` — delay between children *leaving*, so a batch cascades out.
 - `transitionBuilder` / `exitTransitionBuilder` — customise the enter and
   (optionally separate) exit transitions. Default: fade + scale.
 - `animateInitial` — whether the first batch animates in.
+- `onEnter(key)` / `onExitComplete(key)` — lifecycle callbacks per child.
+- `spring` — drive the reflow slide with velocity-preserving physics (below).
 
 Every child **must** carry a unique `Key`.
+
+> **Big lists?** `MotionGroup` animates **every** child at once (no
+> virtualisation) and keeps exiting ones mounted, so it's for *modest*
+> collections. A debug warning fires past
+> `MotionGroup.debugChildCountWarningThreshold` (default 150). For long,
+> scrolling lists use `AnimatedList` / `SliverAnimatedList`.
 
 ## Shared-element "magic move" — `Hero`, but within a page
 
@@ -118,6 +127,20 @@ other, a copy flies from the old rect to the new one. Shared children should be
 **size-flexible** (no fixed width/height) so the flight interpolates layout
 smoothly.
 
+By default the flight carries the destination child. When the two ends look
+different, either dissolve between them with `crossFade: true`, or render a fully
+custom in-flight widget with `flightShuttleBuilder`:
+
+```dart
+MotionSharedScope(
+  crossFade: true, // built-in source→destination dissolve
+  // …or take full control:
+  flightShuttleBuilder: (context, animation, fromChild, toChild) =>
+      FadeTransition(opacity: animation, child: toChild),
+  child: ...,
+)
+```
+
 ### `MotionSharedId` vs `Hero`
 
 |  | `Hero` | `MotionSharedId` |
@@ -151,8 +174,10 @@ accessibility setting), animations are skipped and changes apply instantly.
 
 ## Spring motion
 
-Pass a `SpringCurve` anywhere a curve is accepted for a natural
-overshoot-and-settle:
+Two flavours, depending on whether you want momentum:
+
+**`SpringCurve`** — a spring *look* as a plain `Curve`. Pass it anywhere a curve
+is accepted for a natural overshoot-and-settle over a fixed `duration`:
 
 ```dart
 MotionGroup(
@@ -162,7 +187,22 @@ MotionGroup(
 )
 ```
 
-Lower `damping` bounces more; higher `damping` settles without overshoot.
+**`MotionSpring`** — real, **velocity-preserving** physics for the position
+slide. There's no fixed duration; the slide runs until it settles, and a
+re-order *mid-slide* carries the element's momentum into the new target instead
+of restarting. Pass it via `spring:` on `LayoutMotion`/`MotionGroup` (or set a
+default on `MotionConfig`):
+
+```dart
+MotionGroup(
+  spring: const MotionSpring(stiffness: 220, damping: 16),
+  // (MotionSpring.gentle and MotionSpring.bouncy are ready-made presets)
+  ...
+)
+```
+
+For both, lower `damping` bounces more; higher `damping` settles without
+overshoot.
 
 ## `LayoutMotion` — position-only, for a single widget
 
@@ -216,15 +256,18 @@ arbitrary layouts** (filtered chips, tag grids, dashboards, kanban columns) and
 
 - Shared-element transitions are **within-page** (`MotionSharedScope`); for
   cross-*route* transitions use Flutter's `Hero`. Shared children should be
-  size-flexible, and the flight interpolates the whole child (no separate
-  shuttle builder yet).
-- `SpringCurve` gives a spring *look* (fixed-duration, normalised) — it is not
-  velocity-preserving physics; interruptions are position-continuous but don't
-  carry momentum.
+  size-flexible. The active holder is chosen by a **birth-order heuristic** that
+  can mispick with 3+ simultaneous holders of one id (see
+  [`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md)).
+- Two spring options: `SpringCurve` gives a fixed-duration spring *look* (no
+  momentum); `MotionSpring` is velocity-preserving physics but drives the
+  **position slide only** (not the enter/exit fade-scale).
 - `LayoutMotion.animateSize` interpolates size with `Transform.scale`, which
   visually stretches children — treat it as a visual-only effect for uniform
-  boxes.
-- Best for modest collections; there's no virtualisation.
+  boxes (or use `AnimatedSize`).
+- Best for **modest collections**; there's no virtualisation. `MotionGroup`
+  warns (debug) past `MotionGroup.debugChildCountWarningThreshold` — use
+  `AnimatedList` / `SliverAnimatedList` for large scrolling lists.
 
 See [`doc/API.md`](doc/API.md), [`doc/SPEC.md`](doc/SPEC.md) and
 [`doc/ROADMAP.md`](doc/ROADMAP.md).
