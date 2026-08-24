@@ -1,3 +1,22 @@
+## 0.2.0
+
+Stable release of the 0.2.0 line (the `0.2.0-dev.*` notes below are the full
+feature history). Headline additions since `0.1.x`:
+
+- `MotionSpring` — a **velocity-preserving** spring for position slides, so a
+  reorder mid-slide carries the element's momentum into the new target.
+- Shared-element flight polish — `MotionSharedScope.flightShuttleBuilder` and
+  `crossFade`.
+- `MotionGroup` lifecycle — `onEnter(key)` / `onExitComplete(key)` callbacks and
+  `exitStagger`, plus a one-time debug warning past
+  `debugChildCountWarningThreshold` (default 150).
+- **Example:** a new **Stress** tab — an in-app performance harness with a live
+  FPS / build / raster / jank readout, driving a single `MotionGroup` up to 300
+  churning children.
+- **Docs:** the README now has a measured **Performance** section.
+
+All public API additions are backward compatible with `0.1.x`.
+
 ## 0.2.0-dev.1
 
 Prerelease of the 0.2.0 line for testing on pub.dev before the stable cut.
