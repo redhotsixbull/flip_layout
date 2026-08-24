@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flip_layout/flip_layout.dart';
 
+import 'stress_test_screen.dart';
+
 void main() => runApp(const ExampleApp());
 
 class ExampleApp extends StatelessWidget {
@@ -11,7 +13,7 @@ class ExampleApp extends StatelessWidget {
     // Deep-link a single tab via ?demo=filter|reorder|addremove (for docs
     // screenshots). Falls back to the tabbed demo.
     final demo = Uri.base.queryParameters['demo'];
-    const order = ['filter', 'reorder', 'addremove', 'shared'];
+    const order = ['filter', 'reorder', 'addremove', 'shared', 'stress'];
     final initial = order.indexOf(demo ?? '');
 
     return MaterialApp(
@@ -39,7 +41,7 @@ class _DemoPageState extends State<DemoPage>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
+    _tab = TabController(length: 5, vsync: this, initialIndex: widget.initialTab);
   }
 
   @override
@@ -61,6 +63,7 @@ class _DemoPageState extends State<DemoPage>
             Tab(icon: Icon(Icons.shuffle), text: 'Reorder'),
             Tab(icon: Icon(Icons.playlist_add), text: 'Add / remove'),
             Tab(icon: Icon(Icons.open_in_full), text: 'Shared'),
+            Tab(icon: Icon(Icons.speed_outlined), text: 'Stress'),
           ],
         ),
       ),
@@ -71,6 +74,7 @@ class _DemoPageState extends State<DemoPage>
           _ReorderDemo(),
           _AddRemoveDemo(),
           _SharedDemo(),
+          StressTestScreen(),
         ],
       ),
     );

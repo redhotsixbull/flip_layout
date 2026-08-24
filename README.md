@@ -252,6 +252,26 @@ Reach for a Flutter built-in when it already fits — don't fight it:
 arbitrary layouts** (filtered chips, tag grids, dashboards, kanban columns) and
 **same-page shared elements** — the cases the built-ins don't cover.
 
+## Performance
+
+Measured on an Apple M3 Pro (`flutter test`, JIT — an AOT release build and real
+GPU raster differ):
+
+| Work | cost |
+|---|---|
+| full reorder of 60 / 150 / 300 elements | ~1.9 / 2.2 / 2.3 ms per frame (UI thread) |
+| `SpringCurve()` construction | ~6.8 µs (runs a settle simulation) |
+
+Reflow cost scales sub-linearly with element count — even 300 simultaneously
+sliding children stay well under the 16.7 ms UI-thread budget. Two caveats:
+construct a `SpringCurve` **once**, not per-frame inside `build()`; and these
+headless numbers exclude GPU raster (compositing many transformed layers), which
+is the real limit at high counts — measure it on-device.
+
+Run it yourself: the example app has a **Stress** tab that drives a single
+`MotionGroup` up to 300 churning children with a live FPS / build / raster /
+jank readout (`flutter run --profile` for representative numbers).
+
 ## Known limitations
 
 - Shared-element transitions are **within-page** (`MotionSharedScope`); for
