@@ -16,17 +16,39 @@ import 'package:flutter/material.dart';
 ///       : Detail(MotionSharedId(id: selected.id, child: BigImage(selected))),
 /// )
 /// ```
+///
+/// By default the flight interpolates the **destination** child's layout across
+/// the moving rect. For a smoother morph between visually different source and
+/// destination widgets, either set [crossFade] (the built-in shuttle dissolves
+/// from the source child to the destination child), or supply a
+/// [flightShuttleBuilder] to render a fully custom in-flight widget.
 class MotionSharedScope extends StatefulWidget {
   const MotionSharedScope({
     super.key,
     required this.child,
     this.duration = const Duration(milliseconds: 350),
     this.curve = Curves.easeInOutCubic,
+    this.flightShuttleBuilder,
+    this.crossFade = false,
   });
 
   final Widget child;
   final Duration duration;
   final Curve curve;
+
+  /// Optional builder for the widget shown *in flight* (in the overlay). It
+  /// receives the flight [Animation] (0→1, already shaped by [curve]) and both
+  /// the source child (the widget that previously held the id) and the
+  /// destination child (the widget that now holds it), so you can render any
+  /// transition between them. When null, the flight shows the destination child
+  /// (or a cross-fade of both when [crossFade] is set).
+  final MotionFlightShuttleBuilder? flightShuttleBuilder;
+
+  /// When true (and no [flightShuttleBuilder] is given), the built-in flight
+  /// cross-fades from the source child to the destination child instead of
+  /// carrying only the destination child. Useful when the two ends look
+  /// different (e.g. a thumbnail flying into a full detail card).
+  final bool crossFade;
 
   @override
   State<MotionSharedScope> createState() => _MotionSharedScopeState();
@@ -50,7 +72,19 @@ class _MotionSharedScopeState extends State<MotionSharedScope>
       overlayOf: () => Overlay.of(context),
       duration: widget.duration,
       curve: widget.curve,
+      flightShuttleBuilder: widget.flightShuttleBuilder,
+      crossFade: widget.crossFade,
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant MotionSharedScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _controller
+      ..duration = widget.duration
+      ..curve = widget.curve
+      ..flightShuttleBuilder = widget.flightShuttleBuilder
+      ..crossFade = widget.crossFade;
   }
 
   @override
@@ -77,6 +111,16 @@ class _SharedScopeInherited extends InheritedNotifier<SharedElementController> {
   SharedElementController get controller => notifier!;
 }
 
+/// Builds the in-flight widget for a shared-element transition. [animation] runs
+/// 0→1 over the flight (already shaped by the scope's curve); [fromChild] is the
+/// widget that previously held the id and [toChild] the one that now holds it.
+typedef MotionFlightShuttleBuilder = Widget Function(
+  BuildContext context,
+  Animation<double> animation,
+  Widget fromChild,
+  Widget toChild,
+);
+
 typedef _RectGetter = Rect? Function();
 
 class _Registration {
@@ -99,12 +143,19 @@ class SharedElementController extends ChangeNotifier {
     required this.overlayOf,
     required this.duration,
     required this.curve,
+    this.flightShuttleBuilder,
+    this.crossFade = false,
   });
 
   final TickerProvider vsync;
   final OverlayState? Function() overlayOf;
-  final Duration duration;
-  final Curve curve;
+
+  /// Flight tunables. Mutable so a rebuilt [MotionSharedScope] can update them;
+  /// they take effect on the next flight (in-flight overlays keep their values).
+  Duration duration;
+  Curve curve;
+  MotionFlightShuttleBuilder? flightShuttleBuilder;
+  bool crossFade;
 
   // For each id, all elements currently claiming it (token -> registration).
   // The "active" (front) holder is the one that appeared most recently — by
@@ -117,6 +168,7 @@ class SharedElementController extends ChangeNotifier {
 
   final Map<Object, Rect> _lastRect = {};
   final Map<Object, Object> _lastHolder = {};
+  final Map<Object, Widget> _lastChild = {};
   final Map<Object, Object> _resolvedHolder = {};
   final Set<Object> _flying = {};
   Set<Object> _seenLastProcess = {};
@@ -195,11 +247,13 @@ class SharedElementController extends ChangeNotifier {
       if (_flying.contains(id)) {
         _lastRect[id] = rect;
         _lastHolder[id] = reg.token;
+        _lastChild[id] = reg.child;
         continue;
       }
 
       final lastRect = _lastRect[id];
       final lastHolder = _lastHolder[id];
+      final lastChild = _lastChild[id];
       // A flight fires only for a genuine hand-off: the id was present in the
       // previous frame too (continuity — so a tile recycled by a fast scroll,
       // which reappears after being absent, is NOT a swap), a *different*
@@ -209,9 +263,10 @@ class SharedElementController extends ChangeNotifier {
 
       _lastRect[id] = rect;
       _lastHolder[id] = reg.token;
+      _lastChild[id] = reg.child;
 
       if (continuous && swapped && lastRect != null && lastRect != rect) {
-        _fly(id, lastRect, rect, reg.child);
+        _fly(id, lastRect, rect, fromChild: lastChild, toChild: reg.child);
       }
     }
     _seenLastProcess = present;
@@ -220,7 +275,8 @@ class SharedElementController extends ChangeNotifier {
     if (resolvedChanged && !_disposed) notifyListeners();
   }
 
-  void _fly(Object id, Rect from, Rect to, Widget child) {
+  void _fly(Object id, Rect from, Rect to,
+      {required Widget toChild, Widget? fromChild}) {
     final overlay = overlayOf();
     if (overlay == null) {
       _lastRect[id] = to;
@@ -229,13 +285,21 @@ class SharedElementController extends ChangeNotifier {
     _flying.add(id);
     notifyListeners(); // real widget with this id hides itself
 
+    // Snapshot the flight tunables so a mid-flight scope rebuild can't mutate
+    // this flight's look; a later flight picks up the new values.
+    final flightCurve = curve;
+    final shuttleBuilder = flightShuttleBuilder;
+    final wantsCrossFade = crossFade;
+    final source = fromChild ?? toChild;
+
     final controller = AnimationController(vsync: vsync, duration: duration);
+    final curved = CurvedAnimation(parent: controller, curve: flightCurve);
     late OverlayEntry entry;
     entry = OverlayEntry(
       builder: (context) => AnimatedBuilder(
-        animation: controller,
+        animation: curved,
         builder: (context, _) {
-          final t = curve.transform(controller.value);
+          final t = curved.value;
           final rect = Rect.lerp(from, to, t)!;
           // Positioned.fromRect gives the child tight rect constraints, so a
           // size-flexible child re-lays-out at each interpolated size (true
@@ -245,7 +309,11 @@ class SharedElementController extends ChangeNotifier {
           // "missing style" underline).
           return Positioned.fromRect(
             rect: rect,
-            child: Material(type: MaterialType.transparency, child: child),
+            child: Material(
+              type: MaterialType.transparency,
+              child: _buildShuttle(
+                  context, curved, source, toChild, shuttleBuilder, wantsCrossFade),
+            ),
           );
         },
       ),
@@ -253,10 +321,35 @@ class SharedElementController extends ChangeNotifier {
     overlay.insert(entry);
     controller.forward().whenCompleteOrCancel(() {
       entry.remove();
+      curved.dispose();
       controller.dispose();
       _flying.remove(id);
       if (!_disposed) notifyListeners(); // reveal the real widget
     });
+  }
+
+  /// Builds the widget carried in the overlay during a flight: a custom
+  /// [flightShuttleBuilder] if given, else a cross-fade of source→destination
+  /// (when [crossFade] is on and the ends differ), else just the destination.
+  Widget _buildShuttle(
+    BuildContext context,
+    Animation<double> animation,
+    Widget fromChild,
+    Widget toChild,
+    MotionFlightShuttleBuilder? builder,
+    bool wantsCrossFade,
+  ) {
+    if (builder != null) return builder(context, animation, fromChild, toChild);
+    if (wantsCrossFade && !identical(fromChild, toChild)) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          FadeTransition(opacity: ReverseAnimation(animation), child: fromChild),
+          FadeTransition(opacity: animation, child: toChild),
+        ],
+      );
+    }
+    return toChild;
   }
 
   bool _disposed = false;

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flip_layout/flip_layout.dart';
 
+import 'stress_test_screen.dart';
+
 void main() => runApp(const ExampleApp());
 
 class ExampleApp extends StatelessWidget {
@@ -11,7 +13,7 @@ class ExampleApp extends StatelessWidget {
     // Deep-link a single tab via ?demo=filter|reorder|addremove (for docs
     // screenshots). Falls back to the tabbed demo.
     final demo = Uri.base.queryParameters['demo'];
-    const order = ['filter', 'reorder', 'addremove', 'shared'];
+    const order = ['filter', 'reorder', 'addremove', 'shared', 'stress'];
     final initial = order.indexOf(demo ?? '');
 
     return MaterialApp(
@@ -39,7 +41,7 @@ class _DemoPageState extends State<DemoPage>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
+    _tab = TabController(length: 5, vsync: this, initialIndex: widget.initialTab);
   }
 
   @override
@@ -61,6 +63,7 @@ class _DemoPageState extends State<DemoPage>
             Tab(icon: Icon(Icons.shuffle), text: 'Reorder'),
             Tab(icon: Icon(Icons.playlist_add), text: 'Add / remove'),
             Tab(icon: Icon(Icons.open_in_full), text: 'Shared'),
+            Tab(icon: Icon(Icons.speed_outlined), text: 'Stress'),
           ],
         ),
       ),
@@ -71,6 +74,7 @@ class _DemoPageState extends State<DemoPage>
           _ReorderDemo(),
           _AddRemoveDemo(),
           _SharedDemo(),
+          StressTestScreen(),
         ],
       ),
     );
@@ -172,8 +176,9 @@ class _ReorderDemoState extends State<_ReorderDemo> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(12),
             child: MotionGroup(
-              duration: const Duration(milliseconds: 520),
-              curve: SpringCurve(stiffness: 220, damping: 14), // springy slide
+              // Velocity-preserving physics: shuffle mid-slide and the bubbles
+              // carry momentum into the new target instead of restarting.
+              spring: const MotionSpring(stiffness: 220, damping: 16),
               stagger: const Duration(milliseconds: 25),
               children: [
                 for (final i in _items)
@@ -233,7 +238,7 @@ class _SharedDemoState extends State<_SharedDemo> {
     Color(0xFF00ACC1), Color(0xFFF4511E), Color(0xFF6D4C41),
   ];
 
-  Widget _tile(int i, {double radius = 16}) => Container(
+  Widget _tile(int i, {double radius = 16, bool detail = false}) => Container(
         decoration: BoxDecoration(
           color: _colors[i % _colors.length],
           borderRadius: BorderRadius.circular(radius),
@@ -242,9 +247,22 @@ class _SharedDemoState extends State<_SharedDemo> {
         child: FittedBox(
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: Text('${i + 1}',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('${i + 1}',
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+                // Extra copy that only the detail shows — the cross-fade
+                // dissolves the plain tile into this richer card in flight.
+                if (detail)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text('Detail',
+                        style: TextStyle(color: Colors.white70)),
+                  ),
+              ],
+            ),
           ),
         ),
       );
@@ -257,6 +275,9 @@ class _SharedDemoState extends State<_SharedDemo> {
     return MotionSharedScope(
       duration: const Duration(milliseconds: 420),
       curve: Curves.easeInOutCubic,
+      // Dissolve the plain grid tile into the richer detail card during flight
+      // (and back) instead of carrying only the destination child.
+      crossFade: true,
       child: Stack(
         children: [
           _grid(),
@@ -304,7 +325,7 @@ class _SharedDemoState extends State<_SharedDemo> {
             child: SizedBox(
               width: 240,
               height: 240,
-              child: MotionSharedId(id: i, child: _tile(i, radius: 28)),
+              child: MotionSharedId(id: i, child: _tile(i, radius: 28, detail: true)),
             ),
           ),
           const Positioned(
@@ -331,6 +352,7 @@ class _AddRemoveDemo extends StatefulWidget {
 class _AddRemoveDemoState extends State<_AddRemoveDemo> {
   final List<int> _items = [1, 2, 3];
   int _next = 4;
+  String _status = 'Add, remove, or clear — watch the lifecycle callbacks.';
 
   @override
   Widget build(BuildContext context) {
@@ -338,20 +360,45 @@ class _AddRemoveDemoState extends State<_AddRemoveDemo> {
       children: [
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              icon: const Icon(Icons.add),
-              label: const Text('Add item'),
-              onPressed: () => setState(() => _items.insert(0, _next++)),
-            ),
+          child: Row(
+            children: [
+              FilledButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Add item'),
+                onPressed: () => setState(() => _items.insert(0, _next++)),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.clear_all),
+                label: const Text('Clear'),
+                // Removing them all at once shows the staggered exit.
+                onPressed: _items.isEmpty
+                    ? null
+                    : () => setState(_items.clear),
+              ),
+            ],
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(_status,
+                style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ),
+        const SizedBox(height: 8),
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: MotionGroup(
               duration: const Duration(milliseconds: 280),
+              // Stagger the exit so a "Clear" cascades instead of vanishing.
+              exitStagger: const Duration(milliseconds: 90),
+              onEnter: (key) => setState(
+                  () => _status = 'Entered ${(key as ValueKey).value}'),
+              onExitComplete: (key) => setState(
+                  () => _status = 'Removed ${(key as ValueKey).value}'),
               children: [
                 for (final i in _items)
                   Card(

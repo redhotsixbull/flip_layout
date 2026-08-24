@@ -11,11 +11,18 @@ MotionGroup({
   required Widget Function(BuildContext, List<Widget> children) builder,
   Duration? duration,                   // inherits MotionConfig, else 300ms
   Curve? curve,                         // inherits MotionConfig, else easeOutCubic
+  MotionSpring? spring,                 // velocity-preserving reflow slide (below)
   Duration? stagger,                    // delay between entering children
+  Duration? exitStagger,                // delay between leaving children
   bool animateInitial = true,           // animate the first batch in
   Widget Function(BuildContext, Animation<double>, Widget) transitionBuilder, // enter (0→1)
   Widget Function(BuildContext, Animation<double>, Widget)? exitTransitionBuilder, // exit (1→0)
+  void Function(Key key)? onEnter,        // a child finished entering
+  void Function(Key key)? onExitComplete, // a child finished exiting (removed)
 })
+
+// Debug-only: warn once past this many children (no virtualisation). null silences.
+MotionGroup.debugChildCountWarningThreshold = 150;
 ```
 
 - Add / remove / reorder the `children` list and it animates automatically.
@@ -47,6 +54,7 @@ LayoutMotion({
   required Widget child,
   Duration? duration,       // inherits MotionConfig, else 300ms
   Curve? curve,             // inherits MotionConfig, else easeOutCubic
+  MotionSpring? spring,     // physics slide (inherits MotionConfig); overrides duration/curve
   bool animateSize = false, // also scale on size change (visual-only, distorts)
   VoidCallback? onEnd,      // fires when a slide completes
 })
@@ -71,6 +79,7 @@ MotionConfig({
   Duration? duration,
   Curve? curve,
   Duration? stagger,
+  MotionSpring? spring,   // default velocity-preserving spring for slides
   bool? reduceMotion,   // null → follows MediaQuery.disableAnimations
   required Widget child,
 })
@@ -101,6 +110,28 @@ MotionConfig(curve: SpringCurve(stiffness: 220, damping: 14), child: ...)
 
 ---
 
+## `MotionSpring`
+
+**Velocity-preserving** physics for position slides (vs `SpringCurve`, which is
+a fixed-duration spring *look*). No fixed duration; a mid-slide re-target carries
+momentum.
+
+```dart
+MotionSpring({double mass = 1.0, double stiffness = 180.0, double damping = 20.0})
+MotionSpring.gentle   // near-critically-damped, minimal overshoot
+MotionSpring.bouncy   // underdamped, visible overshoot
+```
+
+Pass via `spring:` on `LayoutMotion`/`MotionGroup`, or as a `MotionConfig`
+default. Drives the **position slide only** (enter/exit still use `duration`/
+`curve`). Skipped under reduced motion.
+
+```dart
+MotionGroup(spring: const MotionSpring(stiffness: 220, damping: 16), ...)
+```
+
+---
+
 ## `MotionSharedScope` / `MotionSharedId`
 
 Shared-element "magic move" **within a page** (no route change) — the thing
@@ -112,9 +143,14 @@ MotionSharedScope({
   required Widget child,
   Duration duration = const Duration(milliseconds: 350),
   Curve curve = Curves.easeInOutCubic,
+  bool crossFade = false, // built-in source→destination dissolve in flight
+  MotionFlightShuttleBuilder? flightShuttleBuilder, // custom in-flight widget
 })
 
 MotionSharedId({Key? key, required Object id, required Widget child})
+
+// flightShuttleBuilder signature:
+// Widget Function(BuildContext, Animation<double> animation, Widget fromChild, Widget toChild)
 ```
 
 - Give two widgets the same `id` under one scope. When one hands the id off to
@@ -124,6 +160,10 @@ MotionSharedId({Key? key, required Object id, required Widget child})
   merely moves (scrolling / relayout) or is recycled by a lazy list.
 - Shared children should be **size-flexible** (no fixed width/height) so the
   flight interpolates layout smoothly.
+- By default the flight carries the destination child. Set `crossFade: true` to
+  dissolve source→destination, or `flightShuttleBuilder` for a custom in-flight
+  widget. The active holder among several is chosen by **birth order** (a
+  heuristic — see [`ARCHITECTURE.md`](ARCHITECTURE.md)).
 
 **Recommended pattern**: don't *replace* the origin screen with the detail —
 **layer** the detail on top (keep the origin mounted). That preserves its

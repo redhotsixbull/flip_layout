@@ -1,3 +1,53 @@
+## 0.2.0
+
+Stable release of the 0.2.0 line (the `0.2.0-dev.*` notes below are the full
+feature history). Headline additions since `0.1.x`:
+
+- `MotionSpring` — a **velocity-preserving** spring for position slides, so a
+  reorder mid-slide carries the element's momentum into the new target.
+- Shared-element flight polish — `MotionSharedScope.flightShuttleBuilder` and
+  `crossFade`.
+- `MotionGroup` lifecycle — `onEnter(key)` / `onExitComplete(key)` callbacks and
+  `exitStagger`, plus a one-time debug warning past
+  `debugChildCountWarningThreshold` (default 150).
+- **Example:** a new **Stress** tab — an in-app performance harness with a live
+  FPS / build / raster / jank readout, driving a single `MotionGroup` up to 300
+  churning children.
+- **Docs:** the README now has a measured **Performance** section.
+
+All public API additions are backward compatible with `0.1.x`.
+
+## 0.2.0-dev.1
+
+Prerelease of the 0.2.0 line for testing on pub.dev before the stable cut.
+
+- **New:** `MotionSpring` — a **velocity-preserving** spring for position slides.
+  Unlike `SpringCurve` (a fixed-duration spring *look*), it drives the slide with
+  a live `SpringSimulation` on an unbounded controller, so a re-order mid-slide
+  carries the element's **momentum** into the new target. Wire it via a new
+  `spring:` argument on `LayoutMotion`/`MotionGroup`, or a `spring:` default on
+  `MotionConfig`. `SpringCurve` still works for the simple curve path.
+- **New:** shared-element flight polish — `MotionSharedScope.flightShuttleBuilder`
+  (render a fully custom in-flight widget, given the source and destination
+  children + the flight animation) and `MotionSharedScope.crossFade` (the
+  built-in flight dissolves source→destination instead of carrying only the
+  destination child). The example Shared tab now cross-fades tile→detail.
+- **New:** `MotionGroup` lifecycle + exit stagger — `onEnter(key)` /
+  `onExitComplete(key)` callbacks and an `exitStagger` so a batch of leaving
+  children cascade out one-after-another. The example Add/remove tab shows both
+  (a "Clear" button + a live status line).
+- **New:** large-collection guard — `MotionGroup` prints a one-time debug warning
+  when its child count exceeds `MotionGroup.debugChildCountWarningThreshold`
+  (default 150), since it isn't virtualised. README/SPEC steer big lists to
+  `AnimatedList` / `SliverAnimatedList`.
+- **Docs:** documented the shared-element **birth-order heuristic** and its limits
+  in `doc/ARCHITECTURE.md`; SPEC/ROADMAP/README updated for the above.
+- **Tests:** added coverage for the flight shuttle + cross-fade, three-holder
+  birth-order pick, rapid open/close and flight-interrupted-by-flight, spring
+  slide + velocity-continuous re-target, the large-count warning, and the
+  lifecycle callbacks + exit stagger.
+- All public API additions are backward compatible with `0.1.x`.
+
 ## 0.1.0
 
 - **New:** `MotionSharedScope` + `MotionSharedId` — shared-element "magic move"

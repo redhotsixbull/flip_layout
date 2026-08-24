@@ -17,6 +17,17 @@ Behavioral contract for the animations. Guarantees are pinned by
   interpolates its layout at each frame (not a uniform scale).
 - Overlay entry + controller are removed/disposed when the flight completes.
 - Route-to-route transitions are out of scope — use Flutter's `Hero`.
+- **Active-holder pick.** When multiple `MotionSharedId`s share an id at once,
+  the **newest by birth order** (most recently created `State`) is the active
+  (visible, flight-destination) holder — NOT the last-registered, so lazy
+  slivers building during layout don't mispick. This is a heuristic; see
+  `doc/ARCHITECTURE.md` for its limits.
+- **Flight shuttle.** By default the flight carries the **destination** child.
+  `crossFade: true` shows the built-in cross-fade of source→destination instead.
+  A `flightShuttleBuilder(context, animation, fromChild, toChild)` replaces the
+  in-flight widget entirely; `animation` runs 0→1 shaped by the scope `curve`.
+  Flight tunables are snapshotted per flight, so a mid-flight scope rebuild does
+  not mutate an in-progress flight.
 
 ## 0. `MotionGroup` — declarative collection (layout + presence)
 
@@ -36,6 +47,9 @@ animates the collection as `children` changes:
   its layout footprint until removed — survivors reflow as a single discrete
   step (no continuous-resize jitter).
 - `stagger`: successive children in the same enter-batch start `stagger` apart.
+- `exitStagger`: successive children in the same *removal* batch start their exit
+  `exitStagger` apart; each leaver stays fully visible until its turn. Collapses
+  to zero under reduced motion.
 - `animateInitial`: when false, the first batch appears at rest (no enter
   animation).
 - Every child MUST have a unique `Key` (asserted).
@@ -43,12 +57,23 @@ animates the collection as `children` changes:
   dispose.
 - `transitionBuilder` drives enter (0→1); `exitTransitionBuilder` (when given)
   drives exit (1→0), else `transitionBuilder` is reused for both.
+- **Lifecycle callbacks.** `onEnter(key)` fires once when a child's enter
+  transition completes (NOT for a first batch placed instantly via
+  `animateInitial: false`). `onExitComplete(key)` fires once when a leaving
+  child's exit transition finishes and it is removed from the tree.
+- **Spring slide.** When a `spring` (`MotionSpring`) is in effect (own arg or via
+  `MotionConfig`), the survivors' FLIP *layout slide* is physics-timed and
+  velocity-preserving (§1); enter/exit transitions still use `duration`/`curve`.
+- **No virtualisation.** `MotionGroup` manages every child at once and keeps
+  exiting ones mounted. In debug builds it warns once when the child count
+  exceeds `MotionGroup.debugChildCountWarningThreshold` (default 150). Large,
+  scrolling collections should use `AnimatedList` / `SliverAnimatedList`.
 
 ## 0b. `MotionConfig` — inherited defaults
 
-- Provides subtree-wide `duration`/`curve`/`stagger` defaults. Resolution for
-  any value: the widget's own argument → nearest `MotionConfig` → built-in
-  default.
+- Provides subtree-wide `duration`/`curve`/`stagger`/`spring` defaults.
+  Resolution for any value: the widget's own argument → nearest `MotionConfig` →
+  built-in default (spring default is null = curve path).
 - `reduceMotion`: when true (or, when null, when `MediaQuery.disableAnimations`
   is set) every effective duration/stagger collapses to zero, so changes apply
   **instantly** with no slide/fade — `LayoutMotion` jumps to the new position
@@ -71,6 +96,14 @@ The FLIP technique: **F**irst/**L**ast measure, **I**nvert with a transform,
 - **Interruptible**: if the layout changes again while a slide is in flight, the
   new slide starts from the element's *current on-screen* offset (not from a
   hard 0), so a reorder-during-reorder stays position-continuous — no jump.
+- **Spring path** (`spring: MotionSpring`, own arg or inherited from
+  `MotionConfig`): the inverse offset is driven per-axis by a live
+  `SpringSimulation` on an unbounded controller (no fixed duration). On an
+  interruption the current **velocity** is carried into the new spring, so
+  momentum is preserved (not restarted from rest); it still settles exactly to
+  identity. `duration`/`curve` are ignored for the position slide (a size
+  `animateSize` scale, if enabled, still rides the curve path). Under reduced
+  motion the spring is skipped (jump to the new position).
 
 ## 2. Measurement correctness (the two subtle guarantees)
 
@@ -120,6 +153,6 @@ The FLIP technique: **F**irst/**L**ast measure, **I**nvert with a transform,
 - Measurement is `mounted`/`attached`-guarded; no `RenderBox` access after
   unmount.
 
-## Not yet (out of scope for 0.0.x)
-Shared-element transitions (`layoutId`), enter/exit (`AnimatePresence`), spring
-physics, coordinated `LayoutGroup`.
+## Not yet
+Cross-*route* shared elements (use `Hero`), `SliverMotionGroup` virtualisation,
+coordinated `LayoutGroup`, non-distorting `animateSize`, gesture-driven reorder.

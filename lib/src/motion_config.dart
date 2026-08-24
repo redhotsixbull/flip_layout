@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'motion_spring.dart';
+
 /// Subtree-wide motion defaults. Wrap part of your app in a [MotionConfig] and
 /// every [LayoutMotion]/[MotionGroup] below inherits its `duration`/`curve`/
 /// `stagger`, and honours its "reduce motion" setting — set it once instead of
@@ -23,6 +25,7 @@ class MotionConfig extends InheritedWidget {
     this.duration,
     this.curve,
     this.stagger,
+    this.spring,
     this.reduceMotion,
     required super.child,
   });
@@ -30,6 +33,12 @@ class MotionConfig extends InheritedWidget {
   final Duration? duration;
   final Curve? curve;
   final Duration? stagger;
+
+  /// Default velocity-preserving [MotionSpring] for position slides. When set,
+  /// it drives `LayoutMotion`/`MotionGroup` FLIP slides with live physics (and
+  /// takes precedence over `duration`/`curve` for the slide). Widgets can still
+  /// override it with their own `spring:` argument.
+  final MotionSpring? spring;
 
   /// Skip animations and apply changes instantly. When null, falls back to the
   /// platform accessibility setting via `MediaQuery.disableAnimations`.
@@ -66,10 +75,15 @@ class MotionConfig extends InheritedWidget {
     return own ?? maybeOf(context)?.stagger ?? Duration.zero;
   }
 
+  /// Effective spring: `own` → config → null (no spring; use the curve path).
+  static MotionSpring? springOf(BuildContext context, MotionSpring? own) =>
+      own ?? maybeOf(context)?.spring;
+
   @override
   bool updateShouldNotify(MotionConfig old) =>
       duration != old.duration ||
       curve != old.curve ||
       stagger != old.stagger ||
+      spring != old.spring ||
       reduceMotion != old.reduceMotion;
 }
