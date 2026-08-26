@@ -34,7 +34,17 @@
 - **Large-collection guard** — one-time debug warning past
   `MotionGroup.debugChildCountWarningThreshold`.
 
+## v0.2.1 — Docs that can't rot (shipped)
+
+- **README carries no version numbers** ✅
+- **`docs_freshness_test.dart` + `readme_snippets_test.dart`** fail the suite if
+  the docs drift from the code ✅
+
 ## Next (v0.3+)
+
+- **Stop exporting `SharedElementController`** — it's the machinery behind
+  `MotionSharedScope`, reachable only through a private lookup, and is public
+  today only because the whole library file is exported.
 
 - **Cross-*route* shared-element** opt-in (today: within-page; routes → `Hero`).
 - **`SliverMotionGroup`** — virtualised group that only animates on-screen items
