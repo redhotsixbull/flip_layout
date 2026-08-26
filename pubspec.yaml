@@ -1,6 +1,6 @@
 name: flip_layout
 description: Declarative layout & presence animations — enter/exit + FLIP reflow for any layout. A Framer Motion for Flutter.
-version: 0.2.0
+version: 0.2.1
 homepage: https://github.com/redhotsixbull/flip_layout
 repository: https://github.com/redhotsixbull/flip_layout
 issue_tracker: https://github.com/redhotsixbull/flip_layout/issues

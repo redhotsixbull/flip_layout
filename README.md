@@ -8,8 +8,12 @@ change your state, and your UI animates itself. Inspired by
 [Framer Motion](https://www.framer.com/motion/)'s `layout` prop,
 `AnimatePresence`, and shared layout transitions.
 
-> **Status:** `0.2.0` — early but usable. Core is covered by tests and runs on
-> every platform (mobile, desktop, **web**).
+> **Status:** early but usable. Core is covered by tests and runs on every
+> platform (mobile, desktop, **web**).
+>
+> This README describes the library as it is now and carries no version
+> numbers — the badge above is the current version, and
+> [`CHANGELOG.md`](CHANGELOG.md) is the history.
 
 ## Why flip_layout?
 
@@ -52,9 +56,8 @@ cd example && flutter run -d chrome # web
 
 ## Install
 
-```yaml
-dependencies:
-  flip_layout: ^0.2.0
+```bash
+flutter pub add flip_layout
 ```
 
 ## `MotionGroup` — the main event
