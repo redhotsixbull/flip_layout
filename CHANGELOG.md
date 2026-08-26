@@ -1,3 +1,26 @@
+## 0.2.1
+
+Documentation hygiene — no behaviour changes.
+
+- **The README no longer carries version numbers.** The status line restated the
+  release and Install pinned `^0.2.0`; both had to be edited every release, and
+  that is exactly what went stale in a sibling package (a README describing a
+  shipped release as a prerelease, served by pub.dev for the whole release).
+  `pubspec.yaml` is the version, `CHANGELOG.md` is the history, the pub.dev
+  badge renders the current number. Install is now `flutter pub add flip_layout`.
+- **New: `test/docs_freshness_test.dart`** — fails the suite if the README
+  contains a version literal, if `CHANGELOG.md`'s newest entry doesn't match
+  `pubspec.yaml`, or if a public type has no entry in `doc/API.md`.
+- **New: `test/readme_snippets_test.dart`** — compile-checks (and mounts) every
+  Dart snippet in the README and `doc/API.md` against the real API: the
+  `MotionGroup` example, the layered shared-element pattern, `crossFade` /
+  `flightShuttleBuilder`, `MotionConfig`, both spring flavours, `LayoutMotion`,
+  and every documented constructor argument across `MotionGroup`,
+  `LayoutMotion`, `AnimatedLayout`, `MotionSharedScope` and `MotionConfig`.
+- `SharedElementController` is recorded in the guard's allowlist as internal —
+  it is exported only because the whole library file is, and is reachable solely
+  through a private lookup. Dropping it from the public export is on the roadmap.
+
 ## 0.2.0
 
 Stable release of the 0.2.0 line (the `0.2.0-dev.*` notes below are the full
